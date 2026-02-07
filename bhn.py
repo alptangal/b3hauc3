@@ -8,12 +8,18 @@ from pathlib import Path
 
 import aiohttp
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+eboda_url_api = os.getenv("url_api_eboda")
+ecnaheb_url_api = os.getenv("url_api_ecnaheb")
 
 
 class Behance:
     headers = {
         "Content-Type": "application/json",
-        "Origin": "https://auth.services.adobe.com",
+        "Origin": f"https://auth.{eboda_url_api}",
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Trailer/93.3.3570.29",
         "cookie": "fg=2F3YLG4BFLM5ADEKFAQVIHAACI======;bcp=c2dbb12f-87db-4cca-83de-e27ac3455de8;gk_suid=15619008;gki=feature_primary_nav_blue_susi:false,; relay=3aec9da6-6de2-45be-9e8d-96550d9604d4; kndctr_9E1005A551ED61CA0A490D45_AdobeOrg_identity=CiYyMDMzMTMyOTQ3MzI3OTYwMDUzMjY5NTE1MTczMTE5MzE2OTMxN1ITCPeM9ITDMxABGAEqBElSTDEwAPAB94z0hMMz; AMCV_9E1005A551ED61CA0A490D45%40AdobeOrg=MCMID|20331329473279600532695151731193169317; OptanonConsent=isGpcEnabled=0&datestamp=Fri+Feb+06+2026+11%3A26%3A31+GMT%2B0700+(Indochina+Time)&version=202501.1.0&browserGpcFlag=0&isIABGlobal=false&hosts=&consentId=e3330136-aa71-488f-99fd-f95aa87803c6&interactionCount=1&isAnonUser=1&landingPath=NotLandingPage&groups=C0001%3A1%2CC0002%3A0%2CC0003%3A0%2CC0004%3A0&AwaitingReconsent=false; RDC=AYoekcfGwQMjcls455yX5r_DSxs8g7JpJDYDUT8YcxGY_SBShaJ-yimeK5qM8YF5180RHRAYJe3gU1DPXYCXsHewnR8IMsAYal3sQD9Cv5zmpTapmriKSjFWC3s8CQ3MQQ74XMPp8LiEhwHI3ZhbzOR3qn8K; filter-profile-map-permanent=AZvgFe3dqnCPUi34U6xh9zZU6OsQ3yZong_A70EOuYF_nOp18Y8m9Piv4eO0gR-VwlOD71-BgGYpF892Csfhhk0AHEIt9GeOVs7lIn9gnDMKbJ1SBIVa9XHtHbM8gC7qTs8RrZTN3xBL6LictuhuQqq9ia8vbIWy2GhbCkQiYil2xbOv_JtvrxmOrcefO-0E7_7NmMOujT677qd4XS4iqockGwSLBSyurZIFiKT4553PrZ_VX9VB2p1WAFofzGlu6A; gpv=Account:IMS:WelcomeBack:AdobeID:OnLoad; kndctr_9E1005A551ED61CA0A490D45_AdobeOrg_cluster=irl1",
         "X-DEBUG-ID": "3aec9da6-6de2-45be-9e8d-96550d9604d4",
@@ -31,18 +37,18 @@ class Behance:
         self.password = password
 
     async def login(self):
-        url = f"https://auth.services.adobe.com/signin/v1/passkey"
+        url = f"https://auth.{eboda_url_api}/signin/v1/passkey"
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=self.headers) as response:
                 verification_token = response.headers.get(
                     "X-Identity-Verification-Token"
                 )
                 if response.status == 200 and verification_token:
-                    url = "https://auth.services.adobe.com/signin/v2/authenticationstate?purpose=multiFactorAuthentication"
+                    url = f"https://auth.{eboda_url_api}/signin/v2/authenticationstate?purpose=multiFactorAuthentication"
                     payload = {
                         "extraPbaChecks": False,
                         "pbaPolicy": None,
-                        "username": "phuongdomegafamily1@gmail.com",
+                        "username": self.username,
                         "usernameType": "EMAIL",
                         "accountType": "individual",
                         "deviceInfo": {
@@ -59,7 +65,7 @@ class Behance:
                         json=payload,
                     ) as response:
                         if response.status == 201:
-                            url = "https://auth.services.adobe.com/signin/v3/challenges?purpose=multiFactorAuthentication"
+                            url = f"https://auth.{eboda_url_api}/signin/v3/challenges?purpose=multiFactorAuthentication"
                             authentication_state_encrypted = response.headers.get(
                                 "x-ims-authentication-state-encrypted"
                             )
@@ -82,11 +88,11 @@ class Behance:
                                         response.status == 200
                                         and authentication_state_encrypted
                                     ):
-                                        url = "https://auth.services.adobe.com/signin/v2/tokens?credential=password"
+                                        url = f"https://auth.{eboda_url_api}/signin/v2/tokens?credential=password"
                                         payload = {
-                                            "username": "phuongdomegafamily1@gmail.com",
+                                            "username": self.username,
                                             "usernameType": "EMAIL",
-                                            "password": "123123_Qwe",
+                                            "password": self.password,
                                             "accountType": "individual",
                                             "rememberMe": True,
                                         }
@@ -102,7 +108,7 @@ class Behance:
                                             if response.status == 200:
                                                 jsonData = await response.json()
                                                 token = jsonData["token"]
-                                                url = "https://auth.services.adobe.com/signin/v1/ims/tokens"
+                                                url = f"https://auth.{eboda_url_api}/signin/v1/ims/tokens"
                                                 payload = {
                                                     "rememberMe": True,
                                                     "reauthenticate": None,
@@ -119,14 +125,14 @@ class Behance:
                                                 ) as response:
                                                     jsonData = await response.json()
                                                     token = jsonData["token"]
-                                                    url = "https://adobeid-na1.services.adobe.com/ims/fromSusi"
+                                                    url = f"https://adobeid-na1.{eboda_url_api}/ims/fromSusi"
                                                     payload = {
                                                         "remember_me": True,
                                                         "token": token,
                                                         "client_id": "BehanceWebSusi1",
                                                         "scope": "AdobeID,openid,gnav,sao.cce_private,creative_cloud,creative_sdk,be.pro2.external_client,additional_info.roles,ims_cai.verifiedId.read,ims_cai.social.read,ims_cai.social.workplace.read",
                                                         "state": {
-                                                            "ac": "behance.net",
+                                                            "ac": "{ecnaheb_url_api}",
                                                             "csrf": "24cb3172-129c-4eae-8566-5e25a1b0d931",
                                                             "timestamp": "1770351292198",
                                                             "context": {
@@ -142,8 +148,8 @@ class Behance:
                                                         "idp_flow_type": "login",
                                                         "locale": "en_US",
                                                         "dctx_id": "v:2,s,179a5130-6796-11f0-8b7e-43217feca831",
-                                                        "redirect_uri": "https://www.behance.net/?isa0=1#old_hash=&from_ims=true&client_id=BehanceWebSusi1&api=authorize&scope=AdobeID,openid,gnav,sao.cce_private,creative_cloud,creative_sdk,be.pro2.external_client,additional_info.roles,ims_cai.verifiedId.read,ims_cai.social.read,ims_cai.social.workplace.read",
-                                                        "callback": "https://ims-na1.adobelogin.com/ims/adobeid/BehanceWebSusi1/AdobeID/token?redirect_uri=https%3A%2F%2Fwww.behance.net%2F%3Fisa0%3D1%23old_hash%3D%26from_ims%3Dtrue%26client_id%3DBehanceWebSusi1%26api%3Dauthorize%26scope%3DAdobeID%2Copenid%2Cgnav%2Csao.cce_private%2Ccreative_cloud%2Ccreative_sdk%2Cbe.pro2.external_client%2Cadditional_info.roles%2Cims_cai.verifiedId.read%2Cims_cai.social.read%2Cims_cai.social.workplace.read&state=%7B%22ac%22%3A%22behance.net%22%2C%22csrf%22%3A%2224cb3172-129c-4eae-8566-5e25a1b0d931%22%2C%22timestamp%22%3A%221770351292198%22%2C%22context%22%3A%7B%22intent%22%3A%22signIn%22%7D%2C%22jslibver%22%3A%22v2-v0.49.0-12-gfb1792a%22%2C%22nonce%22%3A%222271927464218502%22%7D&code_challenge_method=plain&use_ms_for_expiry=true",
+                                                        "redirect_uri": f"https://www.{ecnaheb_url_api}/?isa0=1#old_hash=&from_ims=true&client_id=BehanceWebSusi1&api=authorize&scope=AdobeID,openid,gnav,sao.cce_private,creative_cloud,creative_sdk,be.pro2.external_client,additional_info.roles,ims_cai.verifiedId.read,ims_cai.social.read,ims_cai.social.workplace.read",
+                                                        "callback": f"https://ims-na1.adobelogin.com/ims/adobeid/BehanceWebSusi1/AdobeID/token?redirect_uri=https%3A%2F%2Fwww.{ecnaheb_url_api}%2F%3Fisa0%3D1%23old_hash%3D%26from_ims%3Dtrue%26client_id%3DBehanceWebSusi1%26api%3Dauthorize%26scope%3DAdobeID%2Copenid%2Cgnav%2Csao.cce_private%2Ccreative_cloud%2Ccreative_sdk%2Cbe.pro2.external_client%2Cadditional_info.roles%2Cims_cai.verifiedId.read%2Cims_cai.social.read%2Cims_cai.social.workplace.read&state=%7B%22ac%22%3A%22{ecnaheb_url_api}%22%2C%22csrf%22%3A%2224cb3172-129c-4eae-8566-5e25a1b0d931%22%2C%22timestamp%22%3A%221770351292198%22%2C%22context%22%3A%7B%22intent%22%3A%22signIn%22%7D%2C%22jslibver%22%3A%22v2-v0.49.0-12-gfb1792a%22%2C%22nonce%22%3A%222271927464218502%22%7D&code_challenge_method=plain&use_ms_for_expiry=true",
                                                     }
                                                     async with session.post(
                                                         url,
@@ -179,7 +185,7 @@ class Behance:
         now_gmt = datetime.now(timezone.utc)
         time_formatted = now_gmt.strftime("%a, %d %b %Y %H:%M:%S GMT")
         file_uuid = f"{uuid.uuid4()}.{suffix}"
-        url = f"https://www.behance.net/v2/project/editor/sign_request"
+        url = f"https://www.{ecnaheb_url_api}/v2/project/editor/sign_request"
         payload = {
             "headers": f"POST\n\nimage/png\n\nx-amz-acl:private\nx-amz-date:{time_formatted}\nx-amz-meta-qqfilename:{file_name}\n/be-network-tmp-prod-ue1-a/{file_uuid}?uploads"
         }
@@ -208,7 +214,7 @@ class Behance:
                                 upload_id = re.search(
                                     r".*<UploadId>(.*?)</UploadId>", text_content
                                 ).group(1)
-                                url = "https://www.behance.net/v2/project/editor/sign_request"
+                                url = f"https://www.{ecnaheb_url_api}/v2/project/editor/sign_request"
                                 payload = {
                                     "headers": f"PUT\n\n\n\nx-amz-date:{time_formatted}\n/be-network-tmp-prod-ue1-a/{file_uuid}?partNumber=1&uploadId={upload_id}"
                                 }
@@ -244,7 +250,7 @@ class Behance:
                                                     )
                                                 if req.status_code == 200:
                                                     etag = req.headers.get("ETag")
-                                                    url = "https://www.behance.net/v2/project/editor/sign_request"
+                                                    url = f"https://www.{ecnaheb_url_api}/v2/project/editor/sign_request"
                                                     payload = {
                                                         "headers": f"POST\n\napplication/xml; charset=UTF-8\n\nx-amz-date:{time_formatted}\n/be-network-tmp-prod-ue1-a/{file_uuid}?uploadId={upload_id}"
                                                     }
@@ -282,7 +288,7 @@ class Behance:
                                                                     response.status
                                                                     == 200
                                                                 ):
-                                                                    url = "https://www.behance.net/v3/graphql"
+                                                                    url = f"https://www.{ecnaheb_url_api}/v3/graphql"
                                                                     payload = {
                                                                         "query": "\n  query ProjectEditorPage($projectId: ProjectId!) {\n    siteConfig {\n      ...siteConfigFields\n    }\n    project(id: $projectId) {\n      ...projectEditorFields\n    }\n  }\n\n  \n  fragment projectEditorFields on Project {\n    id\n    agencies {\n      ...projectTagFields\n    }\n    allModules {\n      __typename\n      ... on AudioModule {\n        ...audioModuleFields\n      }\n      ... on EmbedModule {\n        ...embedModuleFields\n      }\n      ... on ImageModule {\n        ...imageModuleFields\n      }\n      ... on MediaCollectionModule {\n        ...mediaCollectionModuleFields\n      }\n      ... on TextModule {\n        ...textModuleFields\n      }\n      ... on VideoModule {\n        ...videoModuleFields\n      }\n    }\n    brands {\n      ...projectTagFields\n    }\n    colors {\n      r\n      g\n      b\n    }\n    covers {\n      ...projectCoverFields\n    }\n    coverData {\n      coverScale\n      coverX\n      coverY\n    }\n    createdOn\n    creatorId\n    credits {\n      displayName\n      images {\n        size_50 {\n          url\n        }\n      }\n      id\n    }\n    description\n    editorVersion\n    features {\n      featuredOn\n      name\n      ribbon {\n        image\n        image2x\n      }\n      url\n    }\n    fields {\n      id\n      label\n      slug\n      url\n    }\n    creator {\n      isFollowing\n      hasAllowEmbeds\n      availabilityInfo {\n        isAvailableFreelance\n      }\n      isMessageButtonVisible\n    }\n    hasMatureContent\n    hasPassword\n    isBoosted\n    activeBoost {\n      id\n      user {\n        id\n        username\n        displayName\n      }\n    }\n    isCommentingAllowed\n    isFounder\n    isMatureReviewSubmitted\n    isMonaReported\n    isPrivate\n    isPublished\n    isPinnedToSubscriptionOverview\n    linkedAssetsCount\n    linkedAssets {\n      ...sourceLinkFields\n    }\n    sourceFiles {\n      ...sourceFileWithRenditionsFields\n    }\n    license {\n      description\n      label\n      license\n      id\n    }\n    matureAccess\n    name\n    networks {\n      id\n      icon\n      key\n      name\n      visible\n    }\n    owners {\n      ...OwnerFields\n      firstName\n      images {\n        size_50 {\n          url\n        }\n      }\n      hasAllowEmbeds\n    }\n    pendingCoowners {\n      displayName\n      id\n    }\n    publishedOn\n    publishStatus\n    premium\n    privacyLevel\n    projectCTA {\n      ctaType\n      link {\n        url\n        title\n        description\n      }\n      isDefaultCTA\n    }\n    scheduledOn\n    schools {\n      ...projectTagFields\n    }\n    slug\n    stats {\n      appreciations {\n        all\n      }\n      comments {\n        all\n      }\n      views {\n        all\n      }\n    }\n    styles {\n      ...projectStylesFields\n    }\n    tags {\n      ...projectTagFields\n    }\n    teams {\n      ...projectTeamFields\n    }\n    tools {\n      ...projectToolFields\n    }\n    url\n  }\n  \n  fragment OwnerFields on User {\n    displayName\n    hasPremiumAccess\n    id\n    isFollowing\n    isProfileOwner\n    location\n    locationUrl\n    url\n    username\n    isMessageButtonVisible\n    availabilityInfo {\n      availabilityTimeline\n      isAvailableFullTime\n      isAvailableFreelance\n      hiringTimeline {\n        key\n        label\n      }\n    }\n    creatorPro {\n      isActive\n      initialSubscriptionDate\n    }\n  }\n\n\n  \n  fragment siteConfigFields on SiteConfig {\n    projectEditorConfig {\n      allowedExtensions {\n        audio\n        image\n        video\n      }\n      allowedSourceFileMimeTypes\n      canvasMaxWidth\n      canvasPadding\n      embedTransformsEndpoint\n      fontConfig {\n        orderedFonts {\n          css\n          label\n          userTypekit\n          regular\n          value\n        }\n      }\n      hasCCV\n      hasLightroom\n      lightroomEndpoint\n      sizeLimits {\n        audio\n        image\n        video\n      }\n      sourceFileSizeLimit\n      substanceUploadEndpoint\n      threeDAssetTypes {\n        substanceAtlas\n        substanceDecal\n        substanceMaterial\n        substanceModel\n      }\n      threeDFileExtensionToAssetTypeMap {\n        fbx\n        glb\n        sbsar\n      }\n    }\n    uploader {\n      requestAccessKey\n      requestEndpoint\n      signatureEndpoint\n      unixTimestamp\n    }\n  }\n\n  \n  fragment audioModuleFields on AudioModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    id\n    isDoneProcessing\n    projectId\n    status\n  }\n\n  \n  fragment embedModuleFields on EmbedModule {\n    alignment\n    caption\n    captionAlignment\n    captionPlain\n    fluidEmbed\n    embedModuleFullBleed: fullBleed\n    height\n    id\n    originalEmbed\n    originalHeight\n    originalWidth\n    width\n    widthUnit\n  }\n\n  \n  fragment imageModuleFields on ImageModule {\n    alignment\n    altText\n    altTextForEditor\n    caiData\n    hasCaiData\n    caption\n    captionAlignment\n    captionPlain\n    flexHeight\n    flexWidth\n    fullBleed\n    height\n    id\n    isCaiVersion1\n    projectId\n    src\n    tags\n    width\n    imageSizes {\n      ...imageSizesFields\n    }\n  }\n\n  \n  fragment textModuleFields on TextModule {\n    id\n    fullBleed\n    alignment\n    captionAlignment\n    text\n    textPlain\n    projectId\n  }\n\n  \n  fragment videoModuleFields on VideoModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    height\n    id\n    isDoneProcessing\n    src\n    videoData {\n      renditions {\n        url\n      }\n      status\n    }\n    width\n  }\n\n  \n  fragment imageSizesFields on ProjectModuleImageSizes {\n    size_disp {\n      height\n      url\n      width\n    }\n    size_fs {\n      height\n      url\n      width\n    }\n    size_max_1200 {\n      height\n      url\n      width\n    }\n    size_original {\n      height\n      url\n      width\n    }\n    size_1400 {\n      height\n      url\n      width\n    }\n    size_1400_opt_1 {\n      height\n      url\n      width\n    }\n    size_2800_opt_1 {\n      height\n      url\n      width\n    }\n    size_max_3840 {\n      height\n      url\n      width\n    }\n    allAvailable {\n      height\n      url\n      width\n      type\n    }\n  }\n\n  \n  fragment mediaCollectionModuleFields on MediaCollectionModule {\n    alignment\n    captionAlignment\n    captionPlain\n    collectionType\n    components {\n      filename\n      flexHeight\n      flexWidth\n      height\n      id\n      imageSizes {\n        size_disp {\n          height\n          url\n          width\n        }\n        size_fs {\n          height\n          url\n          width\n        }\n        size_max_1200 {\n          height\n          url\n          width\n        }\n        size_1400_opt_1 {\n          height\n          url\n          width\n        }\n        size_2800_opt_1 {\n          height\n          url\n          width\n        }\n      }\n      position\n      width\n    }\n    id\n    fullBleed\n    sortType\n  }\n\n  \n  fragment projectCoverFields on ProjectCoverImageSizes {\n    size_original {\n      url\n    }\n    size_115 {\n      url\n    }\n    size_202 {\n      url\n    }\n    size_230 {\n      url\n    }\n    size_404 {\n      url\n    }\n    size_808 {\n      url\n    }\n    size_max_808 {\n      url\n    }\n  }\n\n  \n  fragment projectStylesFields on ProjectStyle {\n    background {\n      color\n    }\n    divider {\n      borderStyle\n      borderWidth\n      display\n      fontSize\n      height\n      lineHeight\n      margin\n      position\n      top\n    }\n    spacing {\n      moduleBottomMargin\n      projectTopMargin\n    }\n  }\n\n  \n  fragment projectTeamFields on TeamItem {\n    displayName\n    id\n    imageSizes {\n      size_115 {\n        height\n        url\n        width\n      }\n      size_138 {\n        height\n        url\n        width\n      }\n      size_276 {\n        height\n        url\n        width\n      }\n    }\n    locationDisplay\n    slug\n    url\n  }\n\n  \n  fragment projectToolFields on Tool {\n    approved\n    backgroundColor\n    backgroundImage {\n      size_original {\n        height\n        url\n        width\n      }\n      size_max_808 {\n        height\n        url\n        width\n      }\n      size_404 {\n        height\n        url\n        width\n      }\n    }\n    category\n    categoryLabel\n    categoryId\n    id\n    synonym {\n      authenticated\n      downloadUrl\n      galleryUrl\n      iconUrl\n      iconUrl2x\n      name\n      synonymId\n      tagId\n      title\n      type\n      url\n    }\n    title\n    url\n  }\n\n  \n  fragment projectTagFields on Tag {\n    category\n    id\n    title\n  }\n\n  \n  fragment sourceFileWithRenditionsFields on SourceFile {\n    __typename\n    sourceFileId\n    projectId\n    userId\n    title\n    assetId\n    renditionUrl\n    mimeType\n    size\n    category\n    licenseType\n    unitAmount\n    currency\n    tier\n    hidden\n    extension\n    hasUserPurchased\n    description\n    renditions {\n      etag\n      fileName\n      id\n      md5\n      mimeType\n      size\n      srcUrl\n    }\n    cover {\n      coverUrl\n      coverX\n      coverY\n      coverScale\n    }\n  }\n\n  \n  fragment sourceLinkFields on LinkedAsset {\n    __typename\n    name\n    premium\n    url\n    category\n    licenseType\n  }\n\n",
                                                                         "variables": {
@@ -532,7 +538,7 @@ class Behance:
                                                                                     )
 
     async def createProject(self, description=None):
-        url = "https://www.behance.net/v2/project/editor"
+        url = f"https://www.{ecnaheb_url_api}/v2/project/editor"
         payload = {
             "privacy": "public",
             "credits": "",
