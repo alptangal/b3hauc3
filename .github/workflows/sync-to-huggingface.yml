@@ -19,14 +19,3 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           git push https://megaphuongdo:${HF_TOKEN}@huggingface.co/spaces/megaphuongdo/b3hauc3-images main --force
-          # Ví dụ cho Space:
-          # git remote add hf https://huggingface.co/spaces/tênuser/tênspace
-
-          # Ví dụ cho Model:
-          # git remote add hf https://huggingface.co/tênuser/tênmodel
-
-          # Ví dụ cho Dataset:
-          # git remote add hf https://huggingface.co/datasets/tênuser/têndataset
-
-          git push hf main --force
-          # hoặc nếu branch khác: git push hf tênbranch:tênbranch
