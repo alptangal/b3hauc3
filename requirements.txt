@@ -1,5 +1,5 @@
 requests
 aiohttp
 dotenv
-gradio>=5.7.1
-huggingface_hub>=1.0.0
+gradio
+huggingface-hub==0.34.3
