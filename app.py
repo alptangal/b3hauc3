@@ -1,9 +1,14 @@
+# Cách ngắn nhất để có API
 import gradio as gr
 
 
-def greet(name):
-    return "Hello " + name + "!!"
+def xuly(text: str) -> str:
+    return text.upper() + "!!!"
 
 
-demo = gr.Interface(fn=greet, inputs="text", outputs="text")
-demo.launch()
+gr.Interface(
+    fn=xuly,
+    inputs="text",
+    outputs="text",
+    api_name="uppercase",  # ← endpoint /uppercase
+).launch(server_name="0.0.0.0", server_port=8000)
