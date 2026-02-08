@@ -3,3 +3,4 @@ aiohttp
 dotenv
 gradio
 huggingface-hub==0.34.3
+flask
