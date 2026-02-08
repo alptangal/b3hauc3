@@ -4,3 +4,4 @@ dotenv
 gradio
 huggingface-hub==0.34.3
 flask
+gunicorn==23.0.0
