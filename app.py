@@ -5,7 +5,7 @@ import time
 
 import gradio as gr
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 load_dotenv()
@@ -139,6 +139,12 @@ async def upload_image():
         return jsonify({"error": "something went wrong"}), 403
     except Exception as error:
         return jsonify({"error": str(error)}), 403
+
+
+@app.route("/uploads/<filename>")
+def uploaded_file(filename):
+    # send_from_directory rất an toàn, tránh directory traversal attack
+    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
 
 if __name__ == "__main__":
