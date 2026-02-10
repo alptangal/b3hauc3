@@ -116,7 +116,6 @@ async def upload_image():
         file = request.files["file"]
         if file.filename == "":
             return jsonify({"error": "Chưa chọn file"}), 400
-        print(12304)
         # Có file và hợp lệ
         if file and allowed_file(file.filename):
             # Bảo mật tên file
@@ -126,10 +125,9 @@ async def upload_image():
             file.save(file_path)
             name = request.form.get("name", "")
             description = request.form.get("description", "")
-            return file_path
             await new_behance.login()
-            print(3333)
             new_project = await new_behance.createProject()
+            return "123"
             if new_project:
                 results = await new_behance.uploadImage(
                     new_project["id"], "./image.png"
