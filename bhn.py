@@ -320,7 +320,7 @@ class Behance:
         file_uuid = f"{uuid.uuid4()}.{suffix}"
         url = f"https://www.{ecnaheb_url_api}/v2/project/editor/sign_request"
         payload = {
-            "headers": f"POST\n\nimage/png\n\nx-amz-acl:private\nx-amz-date:{time_formatted}\nx-amz-meta-qqfilename:{file_name}\n/be-network-tmp-prod-ue1-a/{file_uuid}?uploads"
+            "headers": f"POST\n\nimage/{suffix}\n\nx-amz-acl:private\nx-amz-date:{time_formatted}\nx-amz-meta-qqfilename:{file_name}\n/be-network-tmp-prod-ue1-a/{file_uuid}?uploads"
         }
 
         async with httpx.AsyncClient() as client:
@@ -510,51 +510,7 @@ class Behance:
                                                                         "textTransform": "none",
                                                                     },
                                                                     "matureContentStatus": "OFF",
-                                                                    "modules": [
-                                                                        {
-                                                                            "imageModule": {
-                                                                                "id": 1406309813,
-                                                                                "alignment": "center",
-                                                                                "captionAlignment": "left",
-                                                                                "fullBleed": "NO",
-                                                                                "caption": "",
-                                                                                "tags": [],
-                                                                                "altText": "Image may contain: screenshot",
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            "imageModule": {
-                                                                                "id": 1406309815,
-                                                                                "alignment": "center",
-                                                                                "captionAlignment": "left",
-                                                                                "fullBleed": "NO",
-                                                                                "caption": "",
-                                                                                "tags": [],
-                                                                                "altText": "Image may contain: screenshot",
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            "imageModule": {
-                                                                                "id": 1406309817,
-                                                                                "alignment": "center",
-                                                                                "captionAlignment": "left",
-                                                                                "fullBleed": "NO",
-                                                                                "caption": "",
-                                                                                "tags": [],
-                                                                                "altText": "Image may contain: screenshot",
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            "imageModule": {
-                                                                                "id": -1,
-                                                                                "alignment": "center",
-                                                                                "captionAlignment": "left",
-                                                                                "fullBleed": "NO",
-                                                                                "srcUrl": "https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/582302bc-ec29-4b76-9842-02193e6558ef.png",
-                                                                                "caption": "",
-                                                                            }
-                                                                        },
-                                                                    ],
+                                                                    "modules": [],
                                                                     "moduleBottomMargin": 60,
                                                                     "paragraphStyles": {
                                                                         "color": "696969",
