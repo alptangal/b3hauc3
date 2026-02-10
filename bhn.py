@@ -16,8 +16,6 @@ load_dotenv()
 eboda_url_api = os.getenv("url_api_eboda")
 ecnaheb_url_api = os.getenv("url_api_ecnaheb")
 
-print("")
-
 
 class Behance:
     headers = {
