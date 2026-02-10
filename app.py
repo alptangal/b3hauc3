@@ -1,5 +1,28 @@
+import os
+import random
+import re
+import time
+
 import gradio as gr
+from dotenv import load_dotenv
 from flask import Flask, jsonify, request
+from werkzeug.utils import secure_filename
+
+load_dotenv()
+
+from bhn import Behance
+
+BHN_USERNAME = os.getenv("username")
+BHN_PASSWORD = os.getenv("password")
+
+UPLOAD_FOLDER = "uploads"
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "pdf"}
+
+app = Flask(__name__)
+
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+new_behance = Behance(username=BHN_USERNAME, password=BHN_USERNAME)
 
 
 def hello(name):
@@ -17,7 +40,6 @@ demo = gr.Interface(
 if __name__ == "__main__":
     demo.launch()
 
-app = Flask(__name__)
 
 # Dữ liệu giả (thay vì database thật)
 books = [
@@ -80,6 +102,43 @@ def delete_book(book_id):
 
     books = [b for b in books if b["id"] != book_id]
     return jsonify({"message": "Book deleted successfully"})
+
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+@app.route("/api/images", methods=["POST"])
+async def upload_image():
+    try:
+        if "file" not in request.files:
+            return jsonify({"error": "Không tìm thấy phần file"}), 400
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"error": "Chưa chọn file"}), 400
+
+        # Có file và hợp lệ
+        if file and allowed_file(file.filename):
+            # Bảo mật tên file
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+
+            # Lưu file
+            file.save(file_path)
+            name = request.form.get("name", "")
+            description = request.form.get("description", "")
+
+            await new_behance.login()
+            new_project = await new_behance.createProject()
+            if new_project:
+                results = await new_behance.uploadImage(
+                    new_project["id"], "./image.png"
+                )
+                print(results)
+                return jsonify({"data": str(results)}), 201
+        return jsonify({"error": "something went wrong"}), 403
+    except Exception as error:
+        return jsonify({"error": str(error)}), 403
 
 
 if __name__ == "__main__":
