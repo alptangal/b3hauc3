@@ -14,6 +14,8 @@ demo = gr.Interface(
     api_name="say_hello",  # <-- quan trọng nếu muốn custom endpoint
 )
 
+if __name__ == "__main__":
+    demo.launch()
 
 app = Flask(__name__)
 
