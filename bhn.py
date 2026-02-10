@@ -776,17 +776,3 @@ class Behance:
         #                 return json_data["project"]
         #         else:
         #             raise Exception(f"Unexpected status code: {response.status}")
-
-
-test = Behance(username="phuongdomegafamily1@gmail.com", password="123123_Qwe")
-
-
-async def process():
-    await test.login()
-    new_project = await test.createProject()
-    if new_project:
-        results = await test.uploadImage(new_project["id"], "./image.png")
-        print(results)
-
-
-asyncio.run(process())
