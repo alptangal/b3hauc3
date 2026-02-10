@@ -22,7 +22,6 @@ app = Flask(__name__)
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-new_behance = Behance(username=BHN_USERNAME, password=BHN_USERNAME)
 
 
 def hello(name):
@@ -132,11 +131,11 @@ async def upload_image():
             await test.login()
             new_project = await test.createProject()
             if new_project:
-                results = await test.uploadImage(new_project["id"], "./image.png")
+                results = await test.uploadImage(new_project["id"], file_path)
                 return jsonify({"data": str(results)}), 201
+            new_behance = Behance(username=BHN_USERNAME, password=BHN_USERNAME)
             await new_behance.login()
             new_project = await new_behance.createProject()
-            return "123"
             if new_project:
                 results = await new_behance.uploadImage(new_project["id"], file_path)
                 return jsonify({"data": str(results)}), 201
