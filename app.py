@@ -122,12 +122,11 @@ async def upload_image():
             # Bảo mật tên file
             filename = secure_filename(file.filename)
             file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-            return filename
             # Lưu file
             file.save(file_path)
             name = request.form.get("name", "")
             description = request.form.get("description", "")
-            print(22222)
+            return name
             await new_behance.login()
             print(3333)
             new_project = await new_behance.createProject()
