@@ -128,8 +128,10 @@ async def upload_image():
             await new_behance.login()
             new_project = await new_behance.createProject(description)
             if new_project:
-                results = await new_behance.uploadImage(new_project["id"], file_path)
-                return jsonify({"data": str(results)}), 201
+                result = await new_behance.uploadImage(new_project["id"], file_path)
+                if result:
+                    os.remove(file_path)
+                    return jsonify({"data": str(result)}), 201
         return jsonify({"error": "something went wrong"}), 403
     except Exception as error:
         return jsonify({"error": str(error)}), 403
