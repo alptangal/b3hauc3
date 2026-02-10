@@ -124,9 +124,9 @@ async def upload_image():
             file.save(file_path)
             name = request.form.get("name", "")
             description = request.form.get("description", "")
-            new_behance = Behance(username=BHN_USERNAME, password=BHN_USERNAME)
+            new_behance = Behance(username=BHN_USERNAME, password=BHN_PASSWORD)
             await new_behance.login()
-            new_project = await new_behance.createProject(description=description)
+            new_project = await new_behance.createProject(description)
             if new_project:
                 results = await new_behance.uploadImage(new_project["id"], file_path)
                 return jsonify({"data": str(results)}), 201
