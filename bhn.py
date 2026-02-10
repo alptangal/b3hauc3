@@ -7,6 +7,7 @@ from ftplib import all_errors
 from pathlib import Path
 
 import aiohttp
+import httpx
 import requests
 from dotenv import load_dotenv
 
@@ -321,353 +322,672 @@ class Behance:
         payload = {
             "headers": f"POST\n\nimage/png\n\nx-amz-acl:private\nx-amz-date:{time_formatted}\nx-amz-meta-qqfilename:{file_name}\n/be-network-tmp-prod-ue1-a/{file_uuid}?uploads"
         }
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url, headers=self.headers, json=payload
-            ) as response:
-                if response.status == 200:
-                    jsonData = await response.json()
-                    signatureFirst = jsonData["signature"]
-                    if signatureFirst:
-                        url = f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}?uploads="
-                        async with session.post(
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=self.headers, json=payload)
+            if response.status_code == 200:
+                jsonData = response.json()
+                signatureFirst = jsonData["signature"]
+                if signatureFirst:
+                    url = f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}?uploads="
+                    response = requests.post(
+                        url,
+                        headers={
+                            **self.headers,
+                            "Authorization": f"AWS AKIARCNKPTSWXRTDDYM4:{signatureFirst}",
+                            "x-amz-acl": "private",
+                            "x-amz-meta-qqfilename": file_name,
+                            "x-amz-date": time_formatted,
+                            "content-type": f"image/{suffix}",
+                        },
+                    )
+                    if response.status_code == 200:
+                        text_content = response.text
+                        upload_id = re.search(
+                            r".*<UploadId>(.*?)</UploadId>", text_content
+                        ).group(1)
+                        url = f"https://www.{ecnaheb_url_api}/v2/project/editor/sign_request"
+                        payload = {
+                            "headers": f"PUT\n\n\n\nx-amz-date:{time_formatted}\n/be-network-tmp-prod-ue1-a/{file_uuid}?partNumber=1&uploadId={upload_id}"
+                        }
+                        response = await client.post(
                             url,
                             headers={
                                 **self.headers,
-                                "Authorization": f"AWS AKIARCNKPTSWXRTDDYM4:{signatureFirst}",
                                 "x-amz-acl": "private",
                                 "x-amz-meta-qqfilename": file_name,
                                 "x-amz-date": time_formatted,
-                                "content-type": f"image/{suffix}",
+                                "content-type": "application/json; charset=utf-8",
                             },
-                        ) as response:
-                            if response.status == 200:
-                                text_content = await response.text()
-                                upload_id = re.search(
-                                    r".*<UploadId>(.*?)</UploadId>", text_content
-                                ).group(1)
-                                url = f"https://www.{ecnaheb_url_api}/v2/project/editor/sign_request"
-                                payload = {
-                                    "headers": f"PUT\n\n\n\nx-amz-date:{time_formatted}\n/be-network-tmp-prod-ue1-a/{file_uuid}?partNumber=1&uploadId={upload_id}"
-                                }
-                                async with session.post(
-                                    url,
-                                    headers={
-                                        **self.headers,
-                                        "x-amz-acl": "private",
-                                        "x-amz-meta-qqfilename": file_name,
-                                        "x-amz-date": time_formatted,
-                                        "content-type": "application/json; charset=utf-8",
-                                    },
-                                    json=payload,
-                                ) as response:
-                                    if response.status == 200:
-                                        jsonData = await response.json()
-                                        signature = jsonData["signature"]
-                                        if signature:
-                                            with open(file_path, "rb") as f:
-                                                file_bytes = f.read()
-                                                url = f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}?partNumber=1&uploadId={upload_id}"
-                                                req = requests.put(
+                            json=payload,
+                        )
+                        if response.status_code == 200:
+                            jsonData = response.json()
+                            signature = jsonData["signature"]
+                            if signature:
+                                with open(file_path, "rb") as f:
+                                    file_bytes = f.read()
+                                    url = f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}?partNumber=1&uploadId={upload_id}"
+                                    response = await client.put(
+                                        url,
+                                        headers={
+                                            "Authorization": f"AWS AKIARCNKPTSWXRTDDYM4:{signature}",
+                                            "x-amz-date": time_formatted,
+                                        },
+                                        data=file_bytes,
+                                    )
+                                    if response.status_code != 200:
+                                        raise Exception(
+                                            f"Failed to upload file: {response.status_code}"
+                                        )
+                                    if response.status_code == 200:
+                                        etag = response.headers.get("ETag")
+                                        url = f"https://www.{ecnaheb_url_api}/v2/project/editor/sign_request"
+                                        payload = {
+                                            "headers": f"POST\n\napplication/xml; charset=UTF-8\n\nx-amz-date:{time_formatted}\n/be-network-tmp-prod-ue1-a/{file_uuid}?uploadId={upload_id}"
+                                        }
+                                        response = await client.post(
+                                            url,
+                                            headers={
+                                                **self.headers,
+                                                "x-amz-acl": "private",
+                                                "x-amz-meta-qqfilename": file_name,
+                                                "x-amz-date": time_formatted,
+                                                "content-type": "application/json; charset=utf-8",
+                                            },
+                                            json=payload,
+                                        )
+                                        if response.status_code == 200:
+                                            jsonData = response.json()
+                                            signature = jsonData["signature"]
+                                            payload = f"<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>{etag}</ETag></Part></CompleteMultipartUpload>"
+                                            url = f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}?uploadId={upload_id}"
+                                            response = requests.post(
+                                                url,
+                                                headers={
+                                                    **self.headers,
+                                                    "Authorization": f"AWS AKIARCNKPTSWXRTDDYM4:{signature}",
+                                                    "x-amz-date": time_formatted,
+                                                    "content-type": "application/xml; charset=UTF-8",
+                                                },
+                                                data=payload,
+                                            )
+                                            if response.status_code == 200:
+                                                url = f"https://www.{ecnaheb_url_api}/v3/graphql"
+                                                payload = {
+                                                    "query": "\n  query ProjectEditorPage($projectId: ProjectId!) {\n    siteConfig {\n      ...siteConfigFields\n    }\n    project(id: $projectId) {\n      ...projectEditorFields\n    }\n  }\n\n  \n  fragment projectEditorFields on Project {\n    id\n    agencies {\n      ...projectTagFields\n    }\n    allModules {\n      __typename\n      ... on AudioModule {\n        ...audioModuleFields\n      }\n      ... on EmbedModule {\n        ...embedModuleFields\n      }\n      ... on ImageModule {\n        ...imageModuleFields\n      }\n      ... on MediaCollectionModule {\n        ...mediaCollectionModuleFields\n      }\n      ... on TextModule {\n        ...textModuleFields\n      }\n      ... on VideoModule {\n        ...videoModuleFields\n      }\n    }\n    brands {\n      ...projectTagFields\n    }\n    colors {\n      r\n      g\n      b\n    }\n    covers {\n      ...projectCoverFields\n    }\n    coverData {\n      coverScale\n      coverX\n      coverY\n    }\n    createdOn\n    creatorId\n    credits {\n      displayName\n      images {\n        size_50 {\n          url\n        }\n      }\n      id\n    }\n    description\n    editorVersion\n    features {\n      featuredOn\n      name\n      ribbon {\n        image\n        image2x\n      }\n      url\n    }\n    fields {\n      id\n      label\n      slug\n      url\n    }\n    creator {\n      isFollowing\n      hasAllowEmbeds\n      availabilityInfo {\n        isAvailableFreelance\n      }\n      isMessageButtonVisible\n    }\n    hasMatureContent\n    hasPassword\n    isBoosted\n    activeBoost {\n      id\n      user {\n        id\n        username\n        displayName\n      }\n    }\n    isCommentingAllowed\n    isFounder\n    isMatureReviewSubmitted\n    isMonaReported\n    isPrivate\n    isPublished\n    isPinnedToSubscriptionOverview\n    linkedAssetsCount\n    linkedAssets {\n      ...sourceLinkFields\n    }\n    sourceFiles {\n      ...sourceFileWithRenditionsFields\n    }\n    license {\n      description\n      label\n      license\n      id\n    }\n    matureAccess\n    name\n    networks {\n      id\n      icon\n      key\n      name\n      visible\n    }\n    owners {\n      ...OwnerFields\n      firstName\n      images {\n        size_50 {\n          url\n        }\n      }\n      hasAllowEmbeds\n    }\n    pendingCoowners {\n      displayName\n      id\n    }\n    publishedOn\n    publishStatus\n    premium\n    privacyLevel\n    projectCTA {\n      ctaType\n      link {\n        url\n        title\n        description\n      }\n      isDefaultCTA\n    }\n    scheduledOn\n    schools {\n      ...projectTagFields\n    }\n    slug\n    stats {\n      appreciations {\n        all\n      }\n      comments {\n        all\n      }\n      views {\n        all\n      }\n    }\n    styles {\n      ...projectStylesFields\n    }\n    tags {\n      ...projectTagFields\n    }\n    teams {\n      ...projectTeamFields\n    }\n    tools {\n      ...projectToolFields\n    }\n    url\n  }\n  \n  fragment OwnerFields on User {\n    displayName\n    hasPremiumAccess\n    id\n    isFollowing\n    isProfileOwner\n    location\n    locationUrl\n    url\n    username\n    isMessageButtonVisible\n    availabilityInfo {\n      availabilityTimeline\n      isAvailableFullTime\n      isAvailableFreelance\n      hiringTimeline {\n        key\n        label\n      }\n    }\n    creatorPro {\n      isActive\n      initialSubscriptionDate\n    }\n  }\n\n\n  \n  fragment siteConfigFields on SiteConfig {\n    projectEditorConfig {\n      allowedExtensions {\n        audio\n        image\n        video\n      }\n      allowedSourceFileMimeTypes\n      canvasMaxWidth\n      canvasPadding\n      embedTransformsEndpoint\n      fontConfig {\n        orderedFonts {\n          css\n          label\n          userTypekit\n          regular\n          value\n        }\n      }\n      hasCCV\n      hasLightroom\n      lightroomEndpoint\n      sizeLimits {\n        audio\n        image\n        video\n      }\n      sourceFileSizeLimit\n      substanceUploadEndpoint\n      threeDAssetTypes {\n        substanceAtlas\n        substanceDecal\n        substanceMaterial\n        substanceModel\n      }\n      threeDFileExtensionToAssetTypeMap {\n        fbx\n        glb\n        sbsar\n      }\n    }\n    uploader {\n      requestAccessKey\n      requestEndpoint\n      signatureEndpoint\n      unixTimestamp\n    }\n  }\n\n  \n  fragment audioModuleFields on AudioModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    id\n    isDoneProcessing\n    projectId\n    status\n  }\n\n  \n  fragment embedModuleFields on EmbedModule {\n    alignment\n    caption\n    captionAlignment\n    captionPlain\n    fluidEmbed\n    embedModuleFullBleed: fullBleed\n    height\n    id\n    originalEmbed\n    originalHeight\n    originalWidth\n    width\n    widthUnit\n  }\n\n  \n  fragment imageModuleFields on ImageModule {\n    alignment\n    altText\n    altTextForEditor\n    caiData\n    hasCaiData\n    caption\n    captionAlignment\n    captionPlain\n    flexHeight\n    flexWidth\n    fullBleed\n    height\n    id\n    isCaiVersion1\n    projectId\n    src\n    tags\n    width\n    imageSizes {\n      ...imageSizesFields\n    }\n  }\n\n  \n  fragment textModuleFields on TextModule {\n    id\n    fullBleed\n    alignment\n    captionAlignment\n    text\n    textPlain\n    projectId\n  }\n\n  \n  fragment videoModuleFields on VideoModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    height\n    id\n    isDoneProcessing\n    src\n    videoData {\n      renditions {\n        url\n      }\n      status\n    }\n    width\n  }\n\n  \n  fragment imageSizesFields on ProjectModuleImageSizes {\n    size_disp {\n      height\n      url\n      width\n    }\n    size_fs {\n      height\n      url\n      width\n    }\n    size_max_1200 {\n      height\n      url\n      width\n    }\n    size_original {\n      height\n      url\n      width\n    }\n    size_1400 {\n      height\n      url\n      width\n    }\n    size_1400_opt_1 {\n      height\n      url\n      width\n    }\n    size_2800_opt_1 {\n      height\n      url\n      width\n    }\n    size_max_3840 {\n      height\n      url\n      width\n    }\n    allAvailable {\n      height\n      url\n      width\n      type\n    }\n  }\n\n  \n  fragment mediaCollectionModuleFields on MediaCollectionModule {\n    alignment\n    captionAlignment\n    captionPlain\n    collectionType\n    components {\n      filename\n      flexHeight\n      flexWidth\n      height\n      id\n      imageSizes {\n        size_disp {\n          height\n          url\n          width\n        }\n        size_fs {\n          height\n          url\n          width\n        }\n        size_max_1200 {\n          height\n          url\n          width\n        }\n        size_1400_opt_1 {\n          height\n          url\n          width\n        }\n        size_2800_opt_1 {\n          height\n          url\n          width\n        }\n      }\n      position\n      width\n    }\n    id\n    fullBleed\n    sortType\n  }\n\n  \n  fragment projectCoverFields on ProjectCoverImageSizes {\n    size_original {\n      url\n    }\n    size_115 {\n      url\n    }\n    size_202 {\n      url\n    }\n    size_230 {\n      url\n    }\n    size_404 {\n      url\n    }\n    size_808 {\n      url\n    }\n    size_max_808 {\n      url\n    }\n  }\n\n  \n  fragment projectStylesFields on ProjectStyle {\n    background {\n      color\n    }\n    divider {\n      borderStyle\n      borderWidth\n      display\n      fontSize\n      height\n      lineHeight\n      margin\n      position\n      top\n    }\n    spacing {\n      moduleBottomMargin\n      projectTopMargin\n    }\n  }\n\n  \n  fragment projectTeamFields on TeamItem {\n    displayName\n    id\n    imageSizes {\n      size_115 {\n        height\n        url\n        width\n      }\n      size_138 {\n        height\n        url\n        width\n      }\n      size_276 {\n        height\n        url\n        width\n      }\n    }\n    locationDisplay\n    slug\n    url\n  }\n\n  \n  fragment projectToolFields on Tool {\n    approved\n    backgroundColor\n    backgroundImage {\n      size_original {\n        height\n        url\n        width\n      }\n      size_max_808 {\n        height\n        url\n        width\n      }\n      size_404 {\n        height\n        url\n        width\n      }\n    }\n    category\n    categoryLabel\n    categoryId\n    id\n    synonym {\n      authenticated\n      downloadUrl\n      galleryUrl\n      iconUrl\n      iconUrl2x\n      name\n      synonymId\n      tagId\n      title\n      type\n      url\n    }\n    title\n    url\n  }\n\n  \n  fragment projectTagFields on Tag {\n    category\n    id\n    title\n  }\n\n  \n  fragment sourceFileWithRenditionsFields on SourceFile {\n    __typename\n    sourceFileId\n    projectId\n    userId\n    title\n    assetId\n    renditionUrl\n    mimeType\n    size\n    category\n    licenseType\n    unitAmount\n    currency\n    tier\n    hidden\n    extension\n    hasUserPurchased\n    description\n    renditions {\n      etag\n      fileName\n      id\n      md5\n      mimeType\n      size\n      srcUrl\n    }\n    cover {\n      coverUrl\n      coverX\n      coverY\n      coverScale\n    }\n  }\n\n  \n  fragment sourceLinkFields on LinkedAsset {\n    __typename\n    name\n    premium\n    url\n    category\n    licenseType\n  }\n\n",
+                                                    "variables": {
+                                                        "projectId": project_id
+                                                    },
+                                                }
+                                                response = await client.post(
                                                     url,
                                                     headers={
-                                                        "Authorization": f"AWS AKIARCNKPTSWXRTDDYM4:{signature}",
-                                                        "x-amz-date": time_formatted,
+                                                        **self.headers,
+                                                        "authorization": f"Bearer {self.authorization_bearer}",
+                                                        "content-type": "application/json",
                                                     },
-                                                    data=file_bytes,
+                                                    json=payload,
                                                 )
-                                                if req.status_code != 200:
-                                                    raise Exception(
-                                                        f"Failed to upload file: {req.status_code}"
-                                                    )
-                                                if req.status_code == 200:
-                                                    etag = req.headers.get("ETag")
-                                                    url = f"https://www.{ecnaheb_url_api}/v2/project/editor/sign_request"
-                                                    payload = {
-                                                        "headers": f"POST\n\napplication/xml; charset=UTF-8\n\nx-amz-date:{time_formatted}\n/be-network-tmp-prod-ue1-a/{file_uuid}?uploadId={upload_id}"
-                                                    }
-                                                    async with session.post(
-                                                        url,
-                                                        headers={
-                                                            **self.headers,
-                                                            "x-amz-acl": "private",
-                                                            "x-amz-meta-qqfilename": file_name,
-                                                            "x-amz-date": time_formatted,
-                                                            "content-type": "application/json; charset=utf-8",
-                                                        },
-                                                        json=payload,
-                                                    ) as response:
-                                                        if response.status == 200:
-                                                            jsonData = (
-                                                                await response.json()
-                                                            )
-                                                            signature = jsonData[
-                                                                "signature"
-                                                            ]
-                                                            payload = f"<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>{etag}</ETag></Part></CompleteMultipartUpload>"
-                                                            url = f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}?uploadId={upload_id}"
-                                                            async with session.post(
-                                                                url,
-                                                                headers={
-                                                                    **self.headers,
-                                                                    "Authorization": f"AWS AKIARCNKPTSWXRTDDYM4:{signature}",
-                                                                    "x-amz-date": time_formatted,
-                                                                    "content-type": "application/xml; charset=UTF-8",
-                                                                },
-                                                                data=payload,
-                                                            ) as response:
-                                                                if (
-                                                                    response.status
-                                                                    == 200
-                                                                ):
-                                                                    url = f"https://www.{ecnaheb_url_api}/v3/graphql"
-                                                                    payload = {
-                                                                        "query": "\n  query ProjectEditorPage($projectId: ProjectId!) {\n    siteConfig {\n      ...siteConfigFields\n    }\n    project(id: $projectId) {\n      ...projectEditorFields\n    }\n  }\n\n  \n  fragment projectEditorFields on Project {\n    id\n    agencies {\n      ...projectTagFields\n    }\n    allModules {\n      __typename\n      ... on AudioModule {\n        ...audioModuleFields\n      }\n      ... on EmbedModule {\n        ...embedModuleFields\n      }\n      ... on ImageModule {\n        ...imageModuleFields\n      }\n      ... on MediaCollectionModule {\n        ...mediaCollectionModuleFields\n      }\n      ... on TextModule {\n        ...textModuleFields\n      }\n      ... on VideoModule {\n        ...videoModuleFields\n      }\n    }\n    brands {\n      ...projectTagFields\n    }\n    colors {\n      r\n      g\n      b\n    }\n    covers {\n      ...projectCoverFields\n    }\n    coverData {\n      coverScale\n      coverX\n      coverY\n    }\n    createdOn\n    creatorId\n    credits {\n      displayName\n      images {\n        size_50 {\n          url\n        }\n      }\n      id\n    }\n    description\n    editorVersion\n    features {\n      featuredOn\n      name\n      ribbon {\n        image\n        image2x\n      }\n      url\n    }\n    fields {\n      id\n      label\n      slug\n      url\n    }\n    creator {\n      isFollowing\n      hasAllowEmbeds\n      availabilityInfo {\n        isAvailableFreelance\n      }\n      isMessageButtonVisible\n    }\n    hasMatureContent\n    hasPassword\n    isBoosted\n    activeBoost {\n      id\n      user {\n        id\n        username\n        displayName\n      }\n    }\n    isCommentingAllowed\n    isFounder\n    isMatureReviewSubmitted\n    isMonaReported\n    isPrivate\n    isPublished\n    isPinnedToSubscriptionOverview\n    linkedAssetsCount\n    linkedAssets {\n      ...sourceLinkFields\n    }\n    sourceFiles {\n      ...sourceFileWithRenditionsFields\n    }\n    license {\n      description\n      label\n      license\n      id\n    }\n    matureAccess\n    name\n    networks {\n      id\n      icon\n      key\n      name\n      visible\n    }\n    owners {\n      ...OwnerFields\n      firstName\n      images {\n        size_50 {\n          url\n        }\n      }\n      hasAllowEmbeds\n    }\n    pendingCoowners {\n      displayName\n      id\n    }\n    publishedOn\n    publishStatus\n    premium\n    privacyLevel\n    projectCTA {\n      ctaType\n      link {\n        url\n        title\n        description\n      }\n      isDefaultCTA\n    }\n    scheduledOn\n    schools {\n      ...projectTagFields\n    }\n    slug\n    stats {\n      appreciations {\n        all\n      }\n      comments {\n        all\n      }\n      views {\n        all\n      }\n    }\n    styles {\n      ...projectStylesFields\n    }\n    tags {\n      ...projectTagFields\n    }\n    teams {\n      ...projectTeamFields\n    }\n    tools {\n      ...projectToolFields\n    }\n    url\n  }\n  \n  fragment OwnerFields on User {\n    displayName\n    hasPremiumAccess\n    id\n    isFollowing\n    isProfileOwner\n    location\n    locationUrl\n    url\n    username\n    isMessageButtonVisible\n    availabilityInfo {\n      availabilityTimeline\n      isAvailableFullTime\n      isAvailableFreelance\n      hiringTimeline {\n        key\n        label\n      }\n    }\n    creatorPro {\n      isActive\n      initialSubscriptionDate\n    }\n  }\n\n\n  \n  fragment siteConfigFields on SiteConfig {\n    projectEditorConfig {\n      allowedExtensions {\n        audio\n        image\n        video\n      }\n      allowedSourceFileMimeTypes\n      canvasMaxWidth\n      canvasPadding\n      embedTransformsEndpoint\n      fontConfig {\n        orderedFonts {\n          css\n          label\n          userTypekit\n          regular\n          value\n        }\n      }\n      hasCCV\n      hasLightroom\n      lightroomEndpoint\n      sizeLimits {\n        audio\n        image\n        video\n      }\n      sourceFileSizeLimit\n      substanceUploadEndpoint\n      threeDAssetTypes {\n        substanceAtlas\n        substanceDecal\n        substanceMaterial\n        substanceModel\n      }\n      threeDFileExtensionToAssetTypeMap {\n        fbx\n        glb\n        sbsar\n      }\n    }\n    uploader {\n      requestAccessKey\n      requestEndpoint\n      signatureEndpoint\n      unixTimestamp\n    }\n  }\n\n  \n  fragment audioModuleFields on AudioModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    id\n    isDoneProcessing\n    projectId\n    status\n  }\n\n  \n  fragment embedModuleFields on EmbedModule {\n    alignment\n    caption\n    captionAlignment\n    captionPlain\n    fluidEmbed\n    embedModuleFullBleed: fullBleed\n    height\n    id\n    originalEmbed\n    originalHeight\n    originalWidth\n    width\n    widthUnit\n  }\n\n  \n  fragment imageModuleFields on ImageModule {\n    alignment\n    altText\n    altTextForEditor\n    caiData\n    hasCaiData\n    caption\n    captionAlignment\n    captionPlain\n    flexHeight\n    flexWidth\n    fullBleed\n    height\n    id\n    isCaiVersion1\n    projectId\n    src\n    tags\n    width\n    imageSizes {\n      ...imageSizesFields\n    }\n  }\n\n  \n  fragment textModuleFields on TextModule {\n    id\n    fullBleed\n    alignment\n    captionAlignment\n    text\n    textPlain\n    projectId\n  }\n\n  \n  fragment videoModuleFields on VideoModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    height\n    id\n    isDoneProcessing\n    src\n    videoData {\n      renditions {\n        url\n      }\n      status\n    }\n    width\n  }\n\n  \n  fragment imageSizesFields on ProjectModuleImageSizes {\n    size_disp {\n      height\n      url\n      width\n    }\n    size_fs {\n      height\n      url\n      width\n    }\n    size_max_1200 {\n      height\n      url\n      width\n    }\n    size_original {\n      height\n      url\n      width\n    }\n    size_1400 {\n      height\n      url\n      width\n    }\n    size_1400_opt_1 {\n      height\n      url\n      width\n    }\n    size_2800_opt_1 {\n      height\n      url\n      width\n    }\n    size_max_3840 {\n      height\n      url\n      width\n    }\n    allAvailable {\n      height\n      url\n      width\n      type\n    }\n  }\n\n  \n  fragment mediaCollectionModuleFields on MediaCollectionModule {\n    alignment\n    captionAlignment\n    captionPlain\n    collectionType\n    components {\n      filename\n      flexHeight\n      flexWidth\n      height\n      id\n      imageSizes {\n        size_disp {\n          height\n          url\n          width\n        }\n        size_fs {\n          height\n          url\n          width\n        }\n        size_max_1200 {\n          height\n          url\n          width\n        }\n        size_1400_opt_1 {\n          height\n          url\n          width\n        }\n        size_2800_opt_1 {\n          height\n          url\n          width\n        }\n      }\n      position\n      width\n    }\n    id\n    fullBleed\n    sortType\n  }\n\n  \n  fragment projectCoverFields on ProjectCoverImageSizes {\n    size_original {\n      url\n    }\n    size_115 {\n      url\n    }\n    size_202 {\n      url\n    }\n    size_230 {\n      url\n    }\n    size_404 {\n      url\n    }\n    size_808 {\n      url\n    }\n    size_max_808 {\n      url\n    }\n  }\n\n  \n  fragment projectStylesFields on ProjectStyle {\n    background {\n      color\n    }\n    divider {\n      borderStyle\n      borderWidth\n      display\n      fontSize\n      height\n      lineHeight\n      margin\n      position\n      top\n    }\n    spacing {\n      moduleBottomMargin\n      projectTopMargin\n    }\n  }\n\n  \n  fragment projectTeamFields on TeamItem {\n    displayName\n    id\n    imageSizes {\n      size_115 {\n        height\n        url\n        width\n      }\n      size_138 {\n        height\n        url\n        width\n      }\n      size_276 {\n        height\n        url\n        width\n      }\n    }\n    locationDisplay\n    slug\n    url\n  }\n\n  \n  fragment projectToolFields on Tool {\n    approved\n    backgroundColor\n    backgroundImage {\n      size_original {\n        height\n        url\n        width\n      }\n      size_max_808 {\n        height\n        url\n        width\n      }\n      size_404 {\n        height\n        url\n        width\n      }\n    }\n    category\n    categoryLabel\n    categoryId\n    id\n    synonym {\n      authenticated\n      downloadUrl\n      galleryUrl\n      iconUrl\n      iconUrl2x\n      name\n      synonymId\n      tagId\n      title\n      type\n      url\n    }\n    title\n    url\n  }\n\n  \n  fragment projectTagFields on Tag {\n    category\n    id\n    title\n  }\n\n  \n  fragment sourceFileWithRenditionsFields on SourceFile {\n    __typename\n    sourceFileId\n    projectId\n    userId\n    title\n    assetId\n    renditionUrl\n    mimeType\n    size\n    category\n    licenseType\n    unitAmount\n    currency\n    tier\n    hidden\n    extension\n    hasUserPurchased\n    description\n    renditions {\n      etag\n      fileName\n      id\n      md5\n      mimeType\n      size\n      srcUrl\n    }\n    cover {\n      coverUrl\n      coverX\n      coverY\n      coverScale\n    }\n  }\n\n  \n  fragment sourceLinkFields on LinkedAsset {\n    __typename\n    name\n    premium\n    url\n    category\n    licenseType\n  }\n\n",
-                                                                        "variables": {
-                                                                            "projectId": project_id
+                                                if response.status_code == 200:
+                                                    jsonData = response.json()
+                                                    if jsonData:
+                                                        all_modules = jsonData["data"][
+                                                            "project"
+                                                        ]["allModules"]
+                                                        all_modules_mapped = list(
+                                                            map(
+                                                                lambda item: {
+                                                                    "imageModule": {
+                                                                        **{
+                                                                            k: v
+                                                                            for k, v in item.items()
+                                                                            if k
+                                                                            in [
+                                                                                "alignment",
+                                                                                "altText",
+                                                                                "caption",
+                                                                                "captionAlignment",
+                                                                                "fullBleed",
+                                                                                "id",
+                                                                                "tags",
+                                                                            ]
                                                                         },
+                                                                        "fullBleed": "NO",
                                                                     }
-                                                                    async with (
-                                                                        session.post(
-                                                                            url,
-                                                                            headers={
-                                                                                **self.headers,
-                                                                                "authorization": f"Bearer {self.authorization_bearer}",
-                                                                                "content-type": "application/json",
-                                                                            },
-                                                                            json=payload,
-                                                                        ) as response
-                                                                    ):
-                                                                        if (
-                                                                            response.status
-                                                                            == 200
-                                                                        ):
-                                                                            jsonData = await response.json()
-                                                                            if jsonData:
-                                                                                all_modules = jsonData[
-                                                                                    "data"
-                                                                                ][
-                                                                                    "project"
-                                                                                ][
-                                                                                    "allModules"
-                                                                                ]
-                                                                                all_modules_mapped = list(
-                                                                                    map(
-                                                                                        lambda item: {
-                                                                                            "imageModule": {
-                                                                                                **{
-                                                                                                    k: v
-                                                                                                    for k, v in item.items()
-                                                                                                    if k
-                                                                                                    in [
-                                                                                                        "alignment",
-                                                                                                        "altText",
-                                                                                                        "caption",
-                                                                                                        "captionAlignment",
-                                                                                                        "fullBleed",
-                                                                                                        "id",
-                                                                                                        "tags",
-                                                                                                    ]
-                                                                                                },
-                                                                                                "fullBleed": "NO",
-                                                                                            }
-                                                                                        },
-                                                                                        all_modules,
-                                                                                    )
-                                                                                )
-                                                                                all_modules_mapped.append(
-                                                                                    {
-                                                                                        "imageModule": {
-                                                                                            "alignment": "center",
-                                                                                            "caption": "",
-                                                                                            "fullBleed": "NO",
-                                                                                            "captionAlignment": "left",
-                                                                                            "id": -1,
-                                                                                            "srcUrl": f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}",
-                                                                                        }
-                                                                                    }
-                                                                                )
-                                                                                payload = {
-                                                                                    "query": "\n        mutation updateProject($projectId: Int!, $params: UpdateProjectParams!) {\n          updateProject(projectId: $projectId, params: $params) {\n            ... on UpdateProjectInvalidInputError {\n              __typename\n              descriptionError\n              errorMessage\n              titleError\n              passwordError\n              scheduledOnError\n              tagsErrors {\n                errorMessage\n              }\n              modulesErrors {\n                errorMessage\n              }\n            }\n            ... on Project {\n              ...projectEditorFields\n            }\n          }\n        }\n        \n  fragment projectEditorFields on Project {\n    id\n    agencies {\n      ...projectTagFields\n    }\n    allModules {\n      __typename\n      ... on AudioModule {\n        ...audioModuleFields\n      }\n      ... on EmbedModule {\n        ...embedModuleFields\n      }\n      ... on ImageModule {\n        ...imageModuleFields\n      }\n      ... on MediaCollectionModule {\n        ...mediaCollectionModuleFields\n      }\n      ... on TextModule {\n        ...textModuleFields\n      }\n      ... on VideoModule {\n        ...videoModuleFields\n      }\n    }\n    brands {\n      ...projectTagFields\n    }\n    colors {\n      r\n      g\n      b\n    }\n    covers {\n      ...projectCoverFields\n    }\n    coverData {\n      coverScale\n      coverX\n      coverY\n    }\n    createdOn\n    creatorId\n    credits {\n      displayName\n      images {\n        size_50 {\n          url\n        }\n      }\n      id\n    }\n    description\n    editorVersion\n    features {\n      featuredOn\n      name\n      ribbon {\n        image\n        image2x\n      }\n      url\n    }\n    fields {\n      id\n      label\n      slug\n      url\n    }\n    creator {\n      isFollowing\n      hasAllowEmbeds\n      availabilityInfo {\n        isAvailableFreelance\n      }\n      isMessageButtonVisible\n    }\n    hasMatureContent\n    hasPassword\n    isBoosted\n    activeBoost {\n      id\n      user {\n        id\n        username\n        displayName\n      }\n    }\n    isCommentingAllowed\n    isFounder\n    isMatureReviewSubmitted\n    isMonaReported\n    isPrivate\n    isPublished\n    isPinnedToSubscriptionOverview\n    linkedAssetsCount\n    linkedAssets {\n      ...sourceLinkFields\n    }\n    sourceFiles {\n      ...sourceFileWithRenditionsFields\n    }\n    license {\n      description\n      label\n      license\n      id\n    }\n    matureAccess\n    name\n    networks {\n      id\n      icon\n      key\n      name\n      visible\n    }\n    owners {\n      ...OwnerFields\n      firstName\n      images {\n        size_50 {\n          url\n        }\n      }\n      hasAllowEmbeds\n    }\n    pendingCoowners {\n      displayName\n      id\n    }\n    publishedOn\n    publishStatus\n    premium\n    privacyLevel\n    projectCTA {\n      ctaType\n      link {\n        url\n        title\n        description\n      }\n      isDefaultCTA\n    }\n    scheduledOn\n    schools {\n      ...projectTagFields\n    }\n    slug\n    stats {\n      appreciations {\n        all\n      }\n      comments {\n        all\n      }\n      views {\n        all\n      }\n    }\n    styles {\n      ...projectStylesFields\n    }\n    tags {\n      ...projectTagFields\n    }\n    teams {\n      ...projectTeamFields\n    }\n    tools {\n      ...projectToolFields\n    }\n    url\n  }\n  \n  fragment OwnerFields on User {\n    displayName\n    hasPremiumAccess\n    id\n    isFollowing\n    isProfileOwner\n    location\n    locationUrl\n    url\n    username\n    isMessageButtonVisible\n    availabilityInfo {\n      availabilityTimeline\n      isAvailableFullTime\n      isAvailableFreelance\n      hiringTimeline {\n        key\n        label\n      }\n    }\n    creatorPro {\n      isActive\n      initialSubscriptionDate\n    }\n  }\n\n\n        \n  fragment audioModuleFields on AudioModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    id\n    isDoneProcessing\n    projectId\n    status\n  }\n\n        \n  fragment embedModuleFields on EmbedModule {\n    alignment\n    caption\n    captionAlignment\n    captionPlain\n    fluidEmbed\n    embedModuleFullBleed: fullBleed\n    height\n    id\n    originalEmbed\n    originalHeight\n    originalWidth\n    width\n    widthUnit\n  }\n\n        \n  fragment imageModuleFields on ImageModule {\n    alignment\n    altText\n    altTextForEditor\n    caiData\n    hasCaiData\n    caption\n    captionAlignment\n    captionPlain\n    flexHeight\n    flexWidth\n    fullBleed\n    height\n    id\n    isCaiVersion1\n    projectId\n    src\n    tags\n    width\n    imageSizes {\n      ...imageSizesFields\n    }\n  }\n\n        \n  fragment textModuleFields on TextModule {\n    id\n    fullBleed\n    alignment\n    captionAlignment\n    text\n    textPlain\n    projectId\n  }\n\n        \n  fragment videoModuleFields on VideoModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    height\n    id\n    isDoneProcessing\n    src\n    videoData {\n      renditions {\n        url\n      }\n      status\n    }\n    width\n  }\n\n        \n  fragment imageSizesFields on ProjectModuleImageSizes {\n    size_disp {\n      height\n      url\n      width\n    }\n    size_fs {\n      height\n      url\n      width\n    }\n    size_max_1200 {\n      height\n      url\n      width\n    }\n    size_original {\n      height\n      url\n      width\n    }\n    size_1400 {\n      height\n      url\n      width\n    }\n    size_1400_opt_1 {\n      height\n      url\n      width\n    }\n    size_2800_opt_1 {\n      height\n      url\n      width\n    }\n    size_max_3840 {\n      height\n      url\n      width\n    }\n    allAvailable {\n      height\n      url\n      width\n      type\n    }\n  }\n\n        \n  fragment mediaCollectionModuleFields on MediaCollectionModule {\n    alignment\n    captionAlignment\n    captionPlain\n    collectionType\n    components {\n      filename\n      flexHeight\n      flexWidth\n      height\n      id\n      imageSizes {\n        size_disp {\n          height\n          url\n          width\n        }\n        size_fs {\n          height\n          url\n          width\n        }\n        size_max_1200 {\n          height\n          url\n          width\n        }\n        size_1400_opt_1 {\n          height\n          url\n          width\n        }\n        size_2800_opt_1 {\n          height\n          url\n          width\n        }\n      }\n      position\n      width\n    }\n    id\n    fullBleed\n    sortType\n  }\n\n        \n  fragment projectCoverFields on ProjectCoverImageSizes {\n    size_original {\n      url\n    }\n    size_115 {\n      url\n    }\n    size_202 {\n      url\n    }\n    size_230 {\n      url\n    }\n    size_404 {\n      url\n    }\n    size_808 {\n      url\n    }\n    size_max_808 {\n      url\n    }\n  }\n\n        \n  fragment projectStylesFields on ProjectStyle {\n    background {\n      color\n    }\n    divider {\n      borderStyle\n      borderWidth\n      display\n      fontSize\n      height\n      lineHeight\n      margin\n      position\n      top\n    }\n    spacing {\n      moduleBottomMargin\n      projectTopMargin\n    }\n  }\n\n        \n  fragment projectTeamFields on TeamItem {\n    displayName\n    id\n    imageSizes {\n      size_115 {\n        height\n        url\n        width\n      }\n      size_138 {\n        height\n        url\n        width\n      }\n      size_276 {\n        height\n        url\n        width\n      }\n    }\n    locationDisplay\n    slug\n    url\n  }\n\n        \n  fragment projectToolFields on Tool {\n    approved\n    backgroundColor\n    backgroundImage {\n      size_original {\n        height\n        url\n        width\n      }\n      size_max_808 {\n        height\n        url\n        width\n      }\n      size_404 {\n        height\n        url\n        width\n      }\n    }\n    category\n    categoryLabel\n    categoryId\n    id\n    synonym {\n      authenticated\n      downloadUrl\n      galleryUrl\n      iconUrl\n      iconUrl2x\n      name\n      synonymId\n      tagId\n      title\n      type\n      url\n    }\n    title\n    url\n  }\n\n        \n  fragment projectTagFields on Tag {\n    category\n    id\n    title\n  }\n\n        \n  fragment sourceFileWithRenditionsFields on SourceFile {\n    __typename\n    sourceFileId\n    projectId\n    userId\n    title\n    assetId\n    renditionUrl\n    mimeType\n    size\n    category\n    licenseType\n    unitAmount\n    currency\n    tier\n    hidden\n    extension\n    hasUserPurchased\n    description\n    renditions {\n      etag\n      fileName\n      id\n      md5\n      mimeType\n      size\n      srcUrl\n    }\n    cover {\n      coverUrl\n      coverX\n      coverY\n      coverScale\n    }\n  }\n\n        \n  fragment sourceLinkFields on LinkedAsset {\n    __typename\n    name\n    premium\n    url\n    category\n    licenseType\n  }\n\n      ",
-                                                                                    "variables": {
-                                                                                        "projectId": 243693391,
-                                                                                        "params": {
-                                                                                            "agencies": "",
-                                                                                            "assets": [],
-                                                                                            "backgroundColor": "FFFFFF",
-                                                                                            "brands": "",
-                                                                                            "captionStyles": {
-                                                                                                "color": "a4a4a4",
-                                                                                                "fontFamily": "helvetica,arial,sans-serif",
-                                                                                                "fontSize": 14,
-                                                                                                "fontStyle": "italic",
-                                                                                                "fontWeight": "normal",
-                                                                                                "lineHeight": 1.4,
-                                                                                                "textAlign": "left",
-                                                                                                "textDecoration": "none",
-                                                                                                "textTransform": "none",
-                                                                                            },
-                                                                                            "canvasTopMargin": 80,
-                                                                                            "commentsStatus": "ALLOWED",
-                                                                                            "coowners": "2044610771",
-                                                                                            "creativeFields": "",
-                                                                                            "credits": "",
-                                                                                            "description": "",
-                                                                                            "license": "NO_USE",
-                                                                                            "linkStyles": {
-                                                                                                "color": "1769FF",
-                                                                                                "fontFamily": "helvetica,arial,sans-serif",
-                                                                                                "fontSize": 20,
-                                                                                                "fontStyle": "normal",
-                                                                                                "fontWeight": "normal",
-                                                                                                "lineHeight": 1.4,
-                                                                                                "textAlign": "left",
-                                                                                                "textDecoration": "none",
-                                                                                                "textTransform": "none",
-                                                                                            },
-                                                                                            "matureContentStatus": "OFF",
-                                                                                            "modules": [
-                                                                                                {
-                                                                                                    "imageModule": {
-                                                                                                        "id": 1406309813,
-                                                                                                        "alignment": "center",
-                                                                                                        "captionAlignment": "left",
-                                                                                                        "fullBleed": "NO",
-                                                                                                        "caption": "",
-                                                                                                        "tags": [],
-                                                                                                        "altText": "Image may contain: screenshot",
-                                                                                                    }
-                                                                                                },
-                                                                                                {
-                                                                                                    "imageModule": {
-                                                                                                        "id": 1406309815,
-                                                                                                        "alignment": "center",
-                                                                                                        "captionAlignment": "left",
-                                                                                                        "fullBleed": "NO",
-                                                                                                        "caption": "",
-                                                                                                        "tags": [],
-                                                                                                        "altText": "Image may contain: screenshot",
-                                                                                                    }
-                                                                                                },
-                                                                                                {
-                                                                                                    "imageModule": {
-                                                                                                        "id": 1406309817,
-                                                                                                        "alignment": "center",
-                                                                                                        "captionAlignment": "left",
-                                                                                                        "fullBleed": "NO",
-                                                                                                        "caption": "",
-                                                                                                        "tags": [],
-                                                                                                        "altText": "Image may contain: screenshot",
-                                                                                                    }
-                                                                                                },
-                                                                                                {
-                                                                                                    "imageModule": {
-                                                                                                        "id": -1,
-                                                                                                        "alignment": "center",
-                                                                                                        "captionAlignment": "left",
-                                                                                                        "fullBleed": "NO",
-                                                                                                        "srcUrl": "https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/582302bc-ec29-4b76-9842-02193e6558ef.png",
-                                                                                                        "caption": "",
-                                                                                                    }
-                                                                                                },
-                                                                                            ],
-                                                                                            "moduleBottomMargin": 60,
-                                                                                            "paragraphStyles": {
-                                                                                                "color": "696969",
-                                                                                                "fontFamily": "helvetica,arial,sans-serif",
-                                                                                                "fontSize": 20,
-                                                                                                "fontStyle": "normal",
-                                                                                                "fontWeight": "normal",
-                                                                                                "lineHeight": 1.4,
-                                                                                                "textAlign": "left",
-                                                                                                "textDecoration": "none",
-                                                                                                "textTransform": "none",
-                                                                                            },
-                                                                                            "publishStatus": "DRAFT",
-                                                                                            "schools": "",
-                                                                                            "subTitleStyles": {
-                                                                                                "color": "a4a4a4",
-                                                                                                "fontFamily": "helvetica,arial,sans-serif",
-                                                                                                "fontSize": 20,
-                                                                                                "fontStyle": "normal",
-                                                                                                "fontWeight": "normal",
-                                                                                                "lineHeight": 1.4,
-                                                                                                "textAlign": "left",
-                                                                                                "textDecoration": "none",
-                                                                                                "textTransform": "none",
-                                                                                            },
-                                                                                            "tags": "",
-                                                                                            "teams": "",
-                                                                                            "titleStyles": {
-                                                                                                "color": "191919",
-                                                                                                "fontFamily": "helvetica,arial,sans-serif",
-                                                                                                "fontSize": 36,
-                                                                                                "fontStyle": "normal",
-                                                                                                "fontWeight": "bold",
-                                                                                                "lineHeight": 1.1,
-                                                                                                "textAlign": "left",
-                                                                                                "textDecoration": "none",
-                                                                                                "textTransform": "none",
-                                                                                            },
-                                                                                            "tools": "",
-                                                                                            "visibleNetworkIds": "0",
-                                                                                        },
-                                                                                    },
-                                                                                }
+                                                                },
+                                                                all_modules,
+                                                            )
+                                                        )
+                                                        all_modules_mapped.append(
+                                                            {
+                                                                "imageModule": {
+                                                                    "alignment": "center",
+                                                                    "caption": "",
+                                                                    "fullBleed": "NO",
+                                                                    "captionAlignment": "left",
+                                                                    "id": -1,
+                                                                    "srcUrl": f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}",
+                                                                }
+                                                            }
+                                                        )
+                                                        payload = {
+                                                            "query": "\n        mutation updateProject($projectId: Int!, $params: UpdateProjectParams!) {\n          updateProject(projectId: $projectId, params: $params) {\n            ... on UpdateProjectInvalidInputError {\n              __typename\n              descriptionError\n              errorMessage\n              titleError\n              passwordError\n              scheduledOnError\n              tagsErrors {\n                errorMessage\n              }\n              modulesErrors {\n                errorMessage\n              }\n            }\n            ... on Project {\n              ...projectEditorFields\n            }\n          }\n        }\n        \n  fragment projectEditorFields on Project {\n    id\n    agencies {\n      ...projectTagFields\n    }\n    allModules {\n      __typename\n      ... on AudioModule {\n        ...audioModuleFields\n      }\n      ... on EmbedModule {\n        ...embedModuleFields\n      }\n      ... on ImageModule {\n        ...imageModuleFields\n      }\n      ... on MediaCollectionModule {\n        ...mediaCollectionModuleFields\n      }\n      ... on TextModule {\n        ...textModuleFields\n      }\n      ... on VideoModule {\n        ...videoModuleFields\n      }\n    }\n    brands {\n      ...projectTagFields\n    }\n    colors {\n      r\n      g\n      b\n    }\n    covers {\n      ...projectCoverFields\n    }\n    coverData {\n      coverScale\n      coverX\n      coverY\n    }\n    createdOn\n    creatorId\n    credits {\n      displayName\n      images {\n        size_50 {\n          url\n        }\n      }\n      id\n    }\n    description\n    editorVersion\n    features {\n      featuredOn\n      name\n      ribbon {\n        image\n        image2x\n      }\n      url\n    }\n    fields {\n      id\n      label\n      slug\n      url\n    }\n    creator {\n      isFollowing\n      hasAllowEmbeds\n      availabilityInfo {\n        isAvailableFreelance\n      }\n      isMessageButtonVisible\n    }\n    hasMatureContent\n    hasPassword\n    isBoosted\n    activeBoost {\n      id\n      user {\n        id\n        username\n        displayName\n      }\n    }\n    isCommentingAllowed\n    isFounder\n    isMatureReviewSubmitted\n    isMonaReported\n    isPrivate\n    isPublished\n    isPinnedToSubscriptionOverview\n    linkedAssetsCount\n    linkedAssets {\n      ...sourceLinkFields\n    }\n    sourceFiles {\n      ...sourceFileWithRenditionsFields\n    }\n    license {\n      description\n      label\n      license\n      id\n    }\n    matureAccess\n    name\n    networks {\n      id\n      icon\n      key\n      name\n      visible\n    }\n    owners {\n      ...OwnerFields\n      firstName\n      images {\n        size_50 {\n          url\n        }\n      }\n      hasAllowEmbeds\n    }\n    pendingCoowners {\n      displayName\n      id\n    }\n    publishedOn\n    publishStatus\n    premium\n    privacyLevel\n    projectCTA {\n      ctaType\n      link {\n        url\n        title\n        description\n      }\n      isDefaultCTA\n    }\n    scheduledOn\n    schools {\n      ...projectTagFields\n    }\n    slug\n    stats {\n      appreciations {\n        all\n      }\n      comments {\n        all\n      }\n      views {\n        all\n      }\n    }\n    styles {\n      ...projectStylesFields\n    }\n    tags {\n      ...projectTagFields\n    }\n    teams {\n      ...projectTeamFields\n    }\n    tools {\n      ...projectToolFields\n    }\n    url\n  }\n  \n  fragment OwnerFields on User {\n    displayName\n    hasPremiumAccess\n    id\n    isFollowing\n    isProfileOwner\n    location\n    locationUrl\n    url\n    username\n    isMessageButtonVisible\n    availabilityInfo {\n      availabilityTimeline\n      isAvailableFullTime\n      isAvailableFreelance\n      hiringTimeline {\n        key\n        label\n      }\n    }\n    creatorPro {\n      isActive\n      initialSubscriptionDate\n    }\n  }\n\n\n        \n  fragment audioModuleFields on AudioModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    id\n    isDoneProcessing\n    projectId\n    status\n  }\n\n        \n  fragment embedModuleFields on EmbedModule {\n    alignment\n    caption\n    captionAlignment\n    captionPlain\n    fluidEmbed\n    embedModuleFullBleed: fullBleed\n    height\n    id\n    originalEmbed\n    originalHeight\n    originalWidth\n    width\n    widthUnit\n  }\n\n        \n  fragment imageModuleFields on ImageModule {\n    alignment\n    altText\n    altTextForEditor\n    caiData\n    hasCaiData\n    caption\n    captionAlignment\n    captionPlain\n    flexHeight\n    flexWidth\n    fullBleed\n    height\n    id\n    isCaiVersion1\n    projectId\n    src\n    tags\n    width\n    imageSizes {\n      ...imageSizesFields\n    }\n  }\n\n        \n  fragment textModuleFields on TextModule {\n    id\n    fullBleed\n    alignment\n    captionAlignment\n    text\n    textPlain\n    projectId\n  }\n\n        \n  fragment videoModuleFields on VideoModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    height\n    id\n    isDoneProcessing\n    src\n    videoData {\n      renditions {\n        url\n      }\n      status\n    }\n    width\n  }\n\n        \n  fragment imageSizesFields on ProjectModuleImageSizes {\n    size_disp {\n      height\n      url\n      width\n    }\n    size_fs {\n      height\n      url\n      width\n    }\n    size_max_1200 {\n      height\n      url\n      width\n    }\n    size_original {\n      height\n      url\n      width\n    }\n    size_1400 {\n      height\n      url\n      width\n    }\n    size_1400_opt_1 {\n      height\n      url\n      width\n    }\n    size_2800_opt_1 {\n      height\n      url\n      width\n    }\n    size_max_3840 {\n      height\n      url\n      width\n    }\n    allAvailable {\n      height\n      url\n      width\n      type\n    }\n  }\n\n        \n  fragment mediaCollectionModuleFields on MediaCollectionModule {\n    alignment\n    captionAlignment\n    captionPlain\n    collectionType\n    components {\n      filename\n      flexHeight\n      flexWidth\n      height\n      id\n      imageSizes {\n        size_disp {\n          height\n          url\n          width\n        }\n        size_fs {\n          height\n          url\n          width\n        }\n        size_max_1200 {\n          height\n          url\n          width\n        }\n        size_1400_opt_1 {\n          height\n          url\n          width\n        }\n        size_2800_opt_1 {\n          height\n          url\n          width\n        }\n      }\n      position\n      width\n    }\n    id\n    fullBleed\n    sortType\n  }\n\n        \n  fragment projectCoverFields on ProjectCoverImageSizes {\n    size_original {\n      url\n    }\n    size_115 {\n      url\n    }\n    size_202 {\n      url\n    }\n    size_230 {\n      url\n    }\n    size_404 {\n      url\n    }\n    size_808 {\n      url\n    }\n    size_max_808 {\n      url\n    }\n  }\n\n        \n  fragment projectStylesFields on ProjectStyle {\n    background {\n      color\n    }\n    divider {\n      borderStyle\n      borderWidth\n      display\n      fontSize\n      height\n      lineHeight\n      margin\n      position\n      top\n    }\n    spacing {\n      moduleBottomMargin\n      projectTopMargin\n    }\n  }\n\n        \n  fragment projectTeamFields on TeamItem {\n    displayName\n    id\n    imageSizes {\n      size_115 {\n        height\n        url\n        width\n      }\n      size_138 {\n        height\n        url\n        width\n      }\n      size_276 {\n        height\n        url\n        width\n      }\n    }\n    locationDisplay\n    slug\n    url\n  }\n\n        \n  fragment projectToolFields on Tool {\n    approved\n    backgroundColor\n    backgroundImage {\n      size_original {\n        height\n        url\n        width\n      }\n      size_max_808 {\n        height\n        url\n        width\n      }\n      size_404 {\n        height\n        url\n        width\n      }\n    }\n    category\n    categoryLabel\n    categoryId\n    id\n    synonym {\n      authenticated\n      downloadUrl\n      galleryUrl\n      iconUrl\n      iconUrl2x\n      name\n      synonymId\n      tagId\n      title\n      type\n      url\n    }\n    title\n    url\n  }\n\n        \n  fragment projectTagFields on Tag {\n    category\n    id\n    title\n  }\n\n        \n  fragment sourceFileWithRenditionsFields on SourceFile {\n    __typename\n    sourceFileId\n    projectId\n    userId\n    title\n    assetId\n    renditionUrl\n    mimeType\n    size\n    category\n    licenseType\n    unitAmount\n    currency\n    tier\n    hidden\n    extension\n    hasUserPurchased\n    description\n    renditions {\n      etag\n      fileName\n      id\n      md5\n      mimeType\n      size\n      srcUrl\n    }\n    cover {\n      coverUrl\n      coverX\n      coverY\n      coverScale\n    }\n  }\n\n        \n  fragment sourceLinkFields on LinkedAsset {\n    __typename\n    name\n    premium\n    url\n    category\n    licenseType\n  }\n\n      ",
+                                                            "variables": {
+                                                                "projectId": 243693391,
+                                                                "params": {
+                                                                    "agencies": "",
+                                                                    "assets": [],
+                                                                    "backgroundColor": "FFFFFF",
+                                                                    "brands": "",
+                                                                    "captionStyles": {
+                                                                        "color": "a4a4a4",
+                                                                        "fontFamily": "helvetica,arial,sans-serif",
+                                                                        "fontSize": 14,
+                                                                        "fontStyle": "italic",
+                                                                        "fontWeight": "normal",
+                                                                        "lineHeight": 1.4,
+                                                                        "textAlign": "left",
+                                                                        "textDecoration": "none",
+                                                                        "textTransform": "none",
+                                                                    },
+                                                                    "canvasTopMargin": 80,
+                                                                    "commentsStatus": "ALLOWED",
+                                                                    "coowners": "2044610771",
+                                                                    "creativeFields": "",
+                                                                    "credits": "",
+                                                                    "description": "",
+                                                                    "license": "NO_USE",
+                                                                    "linkStyles": {
+                                                                        "color": "1769FF",
+                                                                        "fontFamily": "helvetica,arial,sans-serif",
+                                                                        "fontSize": 20,
+                                                                        "fontStyle": "normal",
+                                                                        "fontWeight": "normal",
+                                                                        "lineHeight": 1.4,
+                                                                        "textAlign": "left",
+                                                                        "textDecoration": "none",
+                                                                        "textTransform": "none",
+                                                                    },
+                                                                    "matureContentStatus": "OFF",
+                                                                    "modules": [
+                                                                        {
+                                                                            "imageModule": {
+                                                                                "id": 1406309813,
+                                                                                "alignment": "center",
+                                                                                "captionAlignment": "left",
+                                                                                "fullBleed": "NO",
+                                                                                "caption": "",
+                                                                                "tags": [],
+                                                                                "altText": "Image may contain: screenshot",
+                                                                            }
+                                                                        },
+                                                                        {
+                                                                            "imageModule": {
+                                                                                "id": 1406309815,
+                                                                                "alignment": "center",
+                                                                                "captionAlignment": "left",
+                                                                                "fullBleed": "NO",
+                                                                                "caption": "",
+                                                                                "tags": [],
+                                                                                "altText": "Image may contain: screenshot",
+                                                                            }
+                                                                        },
+                                                                        {
+                                                                            "imageModule": {
+                                                                                "id": 1406309817,
+                                                                                "alignment": "center",
+                                                                                "captionAlignment": "left",
+                                                                                "fullBleed": "NO",
+                                                                                "caption": "",
+                                                                                "tags": [],
+                                                                                "altText": "Image may contain: screenshot",
+                                                                            }
+                                                                        },
+                                                                        {
+                                                                            "imageModule": {
+                                                                                "id": -1,
+                                                                                "alignment": "center",
+                                                                                "captionAlignment": "left",
+                                                                                "fullBleed": "NO",
+                                                                                "srcUrl": "https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/582302bc-ec29-4b76-9842-02193e6558ef.png",
+                                                                                "caption": "",
+                                                                            }
+                                                                        },
+                                                                    ],
+                                                                    "moduleBottomMargin": 60,
+                                                                    "paragraphStyles": {
+                                                                        "color": "696969",
+                                                                        "fontFamily": "helvetica,arial,sans-serif",
+                                                                        "fontSize": 20,
+                                                                        "fontStyle": "normal",
+                                                                        "fontWeight": "normal",
+                                                                        "lineHeight": 1.4,
+                                                                        "textAlign": "left",
+                                                                        "textDecoration": "none",
+                                                                        "textTransform": "none",
+                                                                    },
+                                                                    "publishStatus": "DRAFT",
+                                                                    "schools": "",
+                                                                    "subTitleStyles": {
+                                                                        "color": "a4a4a4",
+                                                                        "fontFamily": "helvetica,arial,sans-serif",
+                                                                        "fontSize": 20,
+                                                                        "fontStyle": "normal",
+                                                                        "fontWeight": "normal",
+                                                                        "lineHeight": 1.4,
+                                                                        "textAlign": "left",
+                                                                        "textDecoration": "none",
+                                                                        "textTransform": "none",
+                                                                    },
+                                                                    "tags": "",
+                                                                    "teams": "",
+                                                                    "titleStyles": {
+                                                                        "color": "191919",
+                                                                        "fontFamily": "helvetica,arial,sans-serif",
+                                                                        "fontSize": 36,
+                                                                        "fontStyle": "normal",
+                                                                        "fontWeight": "bold",
+                                                                        "lineHeight": 1.1,
+                                                                        "textAlign": "left",
+                                                                        "textDecoration": "none",
+                                                                        "textTransform": "none",
+                                                                    },
+                                                                    "tools": "",
+                                                                    "visibleNetworkIds": "0",
+                                                                },
+                                                            },
+                                                        }
 
-                                                                                async with (
-                                                                                    session.post(
-                                                                                        url,
-                                                                                        headers={
-                                                                                            **self.headers,
-                                                                                            "authorization": f"Bearer {self.authorization_bearer}",
-                                                                                            "content-type": "application/json",
-                                                                                        },
-                                                                                        json={
-                                                                                            **payload,
-                                                                                            "variables": {
-                                                                                                **payload[
-                                                                                                    "variables"
-                                                                                                ],
-                                                                                                "params": {
-                                                                                                    **payload[
-                                                                                                        "variables"
-                                                                                                    ][
-                                                                                                        "params"
-                                                                                                    ],
-                                                                                                    "modules": all_modules_mapped,
-                                                                                                },
-                                                                                            },
-                                                                                        },
-                                                                                    ) as response
-                                                                                ):
-                                                                                    if (
-                                                                                        response.status
-                                                                                        == 200
-                                                                                    ):
-                                                                                        json_data = await response.json()
-                                                                                        if (
-                                                                                            json_data
-                                                                                            and "data"
-                                                                                            in json_data
-                                                                                            and "updateProject"
-                                                                                            in json_data[
-                                                                                                "data"
-                                                                                            ]
-                                                                                        ):
-                                                                                            print(
-                                                                                                f"{project_id} updated successfully"
-                                                                                            )
-                                                                                            return json_data[
-                                                                                                "data"
-                                                                                            ][
-                                                                                                "updateProject"
-                                                                                            ][
-                                                                                                "allModules"
-                                                                                            ]
-                                                                                    raise Exception(
-                                                                                        "Failed to update project"
-                                                                                    )
+                                                        response = await client.post(
+                                                            url,
+                                                            headers={
+                                                                **self.headers,
+                                                                "authorization": f"Bearer {self.authorization_bearer}",
+                                                                "content-type": "application/json",
+                                                            },
+                                                            json={
+                                                                **payload,
+                                                                "variables": {
+                                                                    **payload[
+                                                                        "variables"
+                                                                    ],
+                                                                    "params": {
+                                                                        **payload[
+                                                                            "variables"
+                                                                        ]["params"],
+                                                                        "modules": all_modules_mapped,
+                                                                    },
+                                                                },
+                                                            },
+                                                        )
+                                                        if response.status_code == 200:
+                                                            json_data = response.json()
+                                                            if (
+                                                                json_data
+                                                                and "data" in json_data
+                                                                and "updateProject"
+                                                                in json_data["data"]
+                                                            ):
+                                                                print(
+                                                                    f"{project_id} updated successfully"
+                                                                )
+                                                                return json_data[
+                                                                    "data"
+                                                                ]["updateProject"][
+                                                                    "allModules"
+                                                                ]
+                                                        raise Exception(
+                                                            "Failed to update project"
+                                                        )
+
+        # async with aiohttp.ClientSession() as session:
+        #     async with session.post(
+        #         url, headers=self.headers, json=payload
+        #     ) as response:
+        #         if response.status == 200:
+        #             jsonData = await response.json()
+        #             signatureFirst = jsonData["signature"]
+        #             if signatureFirst:
+        #                 url = f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}?uploads="
+        #                 async with session.post(
+        #                     url,
+        #                     headers={
+        #                         **self.headers,
+        #                         "Authorization": f"AWS AKIARCNKPTSWXRTDDYM4:{signatureFirst}",
+        #                         "x-amz-acl": "private",
+        #                         "x-amz-meta-qqfilename": file_name,
+        #                         "x-amz-date": time_formatted,
+        #                         "content-type": f"image/{suffix}",
+        #                     },
+        #                 ) as response:
+        #                     if response.status == 200:
+        #                         text_content = await response.text()
+        #                         upload_id = re.search(
+        #                             r".*<UploadId>(.*?)</UploadId>", text_content
+        #                         ).group(1)
+        #                         url = f"https://www.{ecnaheb_url_api}/v2/project/editor/sign_request"
+        #                         payload = {
+        #                             "headers": f"PUT\n\n\n\nx-amz-date:{time_formatted}\n/be-network-tmp-prod-ue1-a/{file_uuid}?partNumber=1&uploadId={upload_id}"
+        #                         }
+        #                         async with session.post(
+        #                             url,
+        #                             headers={
+        #                                 **self.headers,
+        #                                 "x-amz-acl": "private",
+        #                                 "x-amz-meta-qqfilename": file_name,
+        #                                 "x-amz-date": time_formatted,
+        #                                 "content-type": "application/json; charset=utf-8",
+        #                             },
+        #                             json=payload,
+        #                         ) as response:
+        #                             if response.status == 200:
+        #                                 jsonData = await response.json()
+        #                                 signature = jsonData["signature"]
+        #                                 if signature:
+        #                                     with open(file_path, "rb") as f:
+        #                                         file_bytes = f.read()
+        #                                         url = f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}?partNumber=1&uploadId={upload_id}"
+        #                                         req = requests.put(
+        #                                             url,
+        #                                             headers={
+        #                                                 "Authorization": f"AWS AKIARCNKPTSWXRTDDYM4:{signature}",
+        #                                                 "x-amz-date": time_formatted,
+        #                                             },
+        #                                             data=file_bytes,
+        #                                         )
+        #                                         if req.status_code != 200:
+        #                                             raise Exception(
+        #                                                 f"Failed to upload file: {req.status_code}"
+        #                                             )
+        #                                         if req.status_code == 200:
+        #                                             etag = req.headers.get("ETag")
+        #                                             url = f"https://www.{ecnaheb_url_api}/v2/project/editor/sign_request"
+        #                                             payload = {
+        #                                                 "headers": f"POST\n\napplication/xml; charset=UTF-8\n\nx-amz-date:{time_formatted}\n/be-network-tmp-prod-ue1-a/{file_uuid}?uploadId={upload_id}"
+        #                                             }
+        #                                             async with session.post(
+        #                                                 url,
+        #                                                 headers={
+        #                                                     **self.headers,
+        #                                                     "x-amz-acl": "private",
+        #                                                     "x-amz-meta-qqfilename": file_name,
+        #                                                     "x-amz-date": time_formatted,
+        #                                                     "content-type": "application/json; charset=utf-8",
+        #                                                 },
+        #                                                 json=payload,
+        #                                             ) as response:
+        #                                                 if response.status == 200:
+        #                                                     jsonData = (
+        #                                                         await response.json()
+        #                                                     )
+        #                                                     signature = jsonData[
+        #                                                         "signature"
+        #                                                     ]
+        #                                                     payload = f"<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>{etag}</ETag></Part></CompleteMultipartUpload>"
+        #                                                     url = f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}?uploadId={upload_id}"
+        #                                                     async with session.post(
+        #                                                         url,
+        #                                                         headers={
+        #                                                             **self.headers,
+        #                                                             "Authorization": f"AWS AKIARCNKPTSWXRTDDYM4:{signature}",
+        #                                                             "x-amz-date": time_formatted,
+        #                                                             "content-type": "application/xml; charset=UTF-8",
+        #                                                         },
+        #                                                         data=payload,
+        #                                                     ) as response:
+        #                                                         if (
+        #                                                             response.status
+        #                                                             == 200
+        #                                                         ):
+        #                                                             url = f"https://www.{ecnaheb_url_api}/v3/graphql"
+        #                                                             payload = {
+        #                                                                 "query": "\n  query ProjectEditorPage($projectId: ProjectId!) {\n    siteConfig {\n      ...siteConfigFields\n    }\n    project(id: $projectId) {\n      ...projectEditorFields\n    }\n  }\n\n  \n  fragment projectEditorFields on Project {\n    id\n    agencies {\n      ...projectTagFields\n    }\n    allModules {\n      __typename\n      ... on AudioModule {\n        ...audioModuleFields\n      }\n      ... on EmbedModule {\n        ...embedModuleFields\n      }\n      ... on ImageModule {\n        ...imageModuleFields\n      }\n      ... on MediaCollectionModule {\n        ...mediaCollectionModuleFields\n      }\n      ... on TextModule {\n        ...textModuleFields\n      }\n      ... on VideoModule {\n        ...videoModuleFields\n      }\n    }\n    brands {\n      ...projectTagFields\n    }\n    colors {\n      r\n      g\n      b\n    }\n    covers {\n      ...projectCoverFields\n    }\n    coverData {\n      coverScale\n      coverX\n      coverY\n    }\n    createdOn\n    creatorId\n    credits {\n      displayName\n      images {\n        size_50 {\n          url\n        }\n      }\n      id\n    }\n    description\n    editorVersion\n    features {\n      featuredOn\n      name\n      ribbon {\n        image\n        image2x\n      }\n      url\n    }\n    fields {\n      id\n      label\n      slug\n      url\n    }\n    creator {\n      isFollowing\n      hasAllowEmbeds\n      availabilityInfo {\n        isAvailableFreelance\n      }\n      isMessageButtonVisible\n    }\n    hasMatureContent\n    hasPassword\n    isBoosted\n    activeBoost {\n      id\n      user {\n        id\n        username\n        displayName\n      }\n    }\n    isCommentingAllowed\n    isFounder\n    isMatureReviewSubmitted\n    isMonaReported\n    isPrivate\n    isPublished\n    isPinnedToSubscriptionOverview\n    linkedAssetsCount\n    linkedAssets {\n      ...sourceLinkFields\n    }\n    sourceFiles {\n      ...sourceFileWithRenditionsFields\n    }\n    license {\n      description\n      label\n      license\n      id\n    }\n    matureAccess\n    name\n    networks {\n      id\n      icon\n      key\n      name\n      visible\n    }\n    owners {\n      ...OwnerFields\n      firstName\n      images {\n        size_50 {\n          url\n        }\n      }\n      hasAllowEmbeds\n    }\n    pendingCoowners {\n      displayName\n      id\n    }\n    publishedOn\n    publishStatus\n    premium\n    privacyLevel\n    projectCTA {\n      ctaType\n      link {\n        url\n        title\n        description\n      }\n      isDefaultCTA\n    }\n    scheduledOn\n    schools {\n      ...projectTagFields\n    }\n    slug\n    stats {\n      appreciations {\n        all\n      }\n      comments {\n        all\n      }\n      views {\n        all\n      }\n    }\n    styles {\n      ...projectStylesFields\n    }\n    tags {\n      ...projectTagFields\n    }\n    teams {\n      ...projectTeamFields\n    }\n    tools {\n      ...projectToolFields\n    }\n    url\n  }\n  \n  fragment OwnerFields on User {\n    displayName\n    hasPremiumAccess\n    id\n    isFollowing\n    isProfileOwner\n    location\n    locationUrl\n    url\n    username\n    isMessageButtonVisible\n    availabilityInfo {\n      availabilityTimeline\n      isAvailableFullTime\n      isAvailableFreelance\n      hiringTimeline {\n        key\n        label\n      }\n    }\n    creatorPro {\n      isActive\n      initialSubscriptionDate\n    }\n  }\n\n\n  \n  fragment siteConfigFields on SiteConfig {\n    projectEditorConfig {\n      allowedExtensions {\n        audio\n        image\n        video\n      }\n      allowedSourceFileMimeTypes\n      canvasMaxWidth\n      canvasPadding\n      embedTransformsEndpoint\n      fontConfig {\n        orderedFonts {\n          css\n          label\n          userTypekit\n          regular\n          value\n        }\n      }\n      hasCCV\n      hasLightroom\n      lightroomEndpoint\n      sizeLimits {\n        audio\n        image\n        video\n      }\n      sourceFileSizeLimit\n      substanceUploadEndpoint\n      threeDAssetTypes {\n        substanceAtlas\n        substanceDecal\n        substanceMaterial\n        substanceModel\n      }\n      threeDFileExtensionToAssetTypeMap {\n        fbx\n        glb\n        sbsar\n      }\n    }\n    uploader {\n      requestAccessKey\n      requestEndpoint\n      signatureEndpoint\n      unixTimestamp\n    }\n  }\n\n  \n  fragment audioModuleFields on AudioModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    id\n    isDoneProcessing\n    projectId\n    status\n  }\n\n  \n  fragment embedModuleFields on EmbedModule {\n    alignment\n    caption\n    captionAlignment\n    captionPlain\n    fluidEmbed\n    embedModuleFullBleed: fullBleed\n    height\n    id\n    originalEmbed\n    originalHeight\n    originalWidth\n    width\n    widthUnit\n  }\n\n  \n  fragment imageModuleFields on ImageModule {\n    alignment\n    altText\n    altTextForEditor\n    caiData\n    hasCaiData\n    caption\n    captionAlignment\n    captionPlain\n    flexHeight\n    flexWidth\n    fullBleed\n    height\n    id\n    isCaiVersion1\n    projectId\n    src\n    tags\n    width\n    imageSizes {\n      ...imageSizesFields\n    }\n  }\n\n  \n  fragment textModuleFields on TextModule {\n    id\n    fullBleed\n    alignment\n    captionAlignment\n    text\n    textPlain\n    projectId\n  }\n\n  \n  fragment videoModuleFields on VideoModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    height\n    id\n    isDoneProcessing\n    src\n    videoData {\n      renditions {\n        url\n      }\n      status\n    }\n    width\n  }\n\n  \n  fragment imageSizesFields on ProjectModuleImageSizes {\n    size_disp {\n      height\n      url\n      width\n    }\n    size_fs {\n      height\n      url\n      width\n    }\n    size_max_1200 {\n      height\n      url\n      width\n    }\n    size_original {\n      height\n      url\n      width\n    }\n    size_1400 {\n      height\n      url\n      width\n    }\n    size_1400_opt_1 {\n      height\n      url\n      width\n    }\n    size_2800_opt_1 {\n      height\n      url\n      width\n    }\n    size_max_3840 {\n      height\n      url\n      width\n    }\n    allAvailable {\n      height\n      url\n      width\n      type\n    }\n  }\n\n  \n  fragment mediaCollectionModuleFields on MediaCollectionModule {\n    alignment\n    captionAlignment\n    captionPlain\n    collectionType\n    components {\n      filename\n      flexHeight\n      flexWidth\n      height\n      id\n      imageSizes {\n        size_disp {\n          height\n          url\n          width\n        }\n        size_fs {\n          height\n          url\n          width\n        }\n        size_max_1200 {\n          height\n          url\n          width\n        }\n        size_1400_opt_1 {\n          height\n          url\n          width\n        }\n        size_2800_opt_1 {\n          height\n          url\n          width\n        }\n      }\n      position\n      width\n    }\n    id\n    fullBleed\n    sortType\n  }\n\n  \n  fragment projectCoverFields on ProjectCoverImageSizes {\n    size_original {\n      url\n    }\n    size_115 {\n      url\n    }\n    size_202 {\n      url\n    }\n    size_230 {\n      url\n    }\n    size_404 {\n      url\n    }\n    size_808 {\n      url\n    }\n    size_max_808 {\n      url\n    }\n  }\n\n  \n  fragment projectStylesFields on ProjectStyle {\n    background {\n      color\n    }\n    divider {\n      borderStyle\n      borderWidth\n      display\n      fontSize\n      height\n      lineHeight\n      margin\n      position\n      top\n    }\n    spacing {\n      moduleBottomMargin\n      projectTopMargin\n    }\n  }\n\n  \n  fragment projectTeamFields on TeamItem {\n    displayName\n    id\n    imageSizes {\n      size_115 {\n        height\n        url\n        width\n      }\n      size_138 {\n        height\n        url\n        width\n      }\n      size_276 {\n        height\n        url\n        width\n      }\n    }\n    locationDisplay\n    slug\n    url\n  }\n\n  \n  fragment projectToolFields on Tool {\n    approved\n    backgroundColor\n    backgroundImage {\n      size_original {\n        height\n        url\n        width\n      }\n      size_max_808 {\n        height\n        url\n        width\n      }\n      size_404 {\n        height\n        url\n        width\n      }\n    }\n    category\n    categoryLabel\n    categoryId\n    id\n    synonym {\n      authenticated\n      downloadUrl\n      galleryUrl\n      iconUrl\n      iconUrl2x\n      name\n      synonymId\n      tagId\n      title\n      type\n      url\n    }\n    title\n    url\n  }\n\n  \n  fragment projectTagFields on Tag {\n    category\n    id\n    title\n  }\n\n  \n  fragment sourceFileWithRenditionsFields on SourceFile {\n    __typename\n    sourceFileId\n    projectId\n    userId\n    title\n    assetId\n    renditionUrl\n    mimeType\n    size\n    category\n    licenseType\n    unitAmount\n    currency\n    tier\n    hidden\n    extension\n    hasUserPurchased\n    description\n    renditions {\n      etag\n      fileName\n      id\n      md5\n      mimeType\n      size\n      srcUrl\n    }\n    cover {\n      coverUrl\n      coverX\n      coverY\n      coverScale\n    }\n  }\n\n  \n  fragment sourceLinkFields on LinkedAsset {\n    __typename\n    name\n    premium\n    url\n    category\n    licenseType\n  }\n\n",
+        #                                                                 "variables": {
+        #                                                                     "projectId": project_id
+        #                                                                 },
+        #                                                             }
+        #                                                             async with (
+        #                                                                 session.post(
+        #                                                                     url,
+        #                                                                     headers={
+        #                                                                         **self.headers,
+        #                                                                         "authorization": f"Bearer {self.authorization_bearer}",
+        #                                                                         "content-type": "application/json",
+        #                                                                     },
+        #                                                                     json=payload,
+        #                                                                 ) as response
+        #                                                             ):
+        #                                                                 if (
+        #                                                                     response.status
+        #                                                                     == 200
+        #                                                                 ):
+        #                                                                     jsonData = await response.json()
+        #                                                                     if jsonData:
+        #                                                                         all_modules = jsonData[
+        #                                                                             "data"
+        #                                                                         ][
+        #                                                                             "project"
+        #                                                                         ][
+        #                                                                             "allModules"
+        #                                                                         ]
+        #                                                                         all_modules_mapped = list(
+        #                                                                             map(
+        #                                                                                 lambda item: {
+        #                                                                                     "imageModule": {
+        #                                                                                         **{
+        #                                                                                             k: v
+        #                                                                                             for k, v in item.items()
+        #                                                                                             if k
+        #                                                                                             in [
+        #                                                                                                 "alignment",
+        #                                                                                                 "altText",
+        #                                                                                                 "caption",
+        #                                                                                                 "captionAlignment",
+        #                                                                                                 "fullBleed",
+        #                                                                                                 "id",
+        #                                                                                                 "tags",
+        #                                                                                             ]
+        #                                                                                         },
+        #                                                                                         "fullBleed": "NO",
+        #                                                                                     }
+        #                                                                                 },
+        #                                                                                 all_modules,
+        #                                                                             )
+        #                                                                         )
+        #                                                                         all_modules_mapped.append(
+        #                                                                             {
+        #                                                                                 "imageModule": {
+        #                                                                                     "alignment": "center",
+        #                                                                                     "caption": "",
+        #                                                                                     "fullBleed": "NO",
+        #                                                                                     "captionAlignment": "left",
+        #                                                                                     "id": -1,
+        #                                                                                     "srcUrl": f"https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/{file_uuid}",
+        #                                                                                 }
+        #                                                                             }
+        #                                                                         )
+        #                                                                         payload = {
+        #                                                                             "query": "\n        mutation updateProject($projectId: Int!, $params: UpdateProjectParams!) {\n          updateProject(projectId: $projectId, params: $params) {\n            ... on UpdateProjectInvalidInputError {\n              __typename\n              descriptionError\n              errorMessage\n              titleError\n              passwordError\n              scheduledOnError\n              tagsErrors {\n                errorMessage\n              }\n              modulesErrors {\n                errorMessage\n              }\n            }\n            ... on Project {\n              ...projectEditorFields\n            }\n          }\n        }\n        \n  fragment projectEditorFields on Project {\n    id\n    agencies {\n      ...projectTagFields\n    }\n    allModules {\n      __typename\n      ... on AudioModule {\n        ...audioModuleFields\n      }\n      ... on EmbedModule {\n        ...embedModuleFields\n      }\n      ... on ImageModule {\n        ...imageModuleFields\n      }\n      ... on MediaCollectionModule {\n        ...mediaCollectionModuleFields\n      }\n      ... on TextModule {\n        ...textModuleFields\n      }\n      ... on VideoModule {\n        ...videoModuleFields\n      }\n    }\n    brands {\n      ...projectTagFields\n    }\n    colors {\n      r\n      g\n      b\n    }\n    covers {\n      ...projectCoverFields\n    }\n    coverData {\n      coverScale\n      coverX\n      coverY\n    }\n    createdOn\n    creatorId\n    credits {\n      displayName\n      images {\n        size_50 {\n          url\n        }\n      }\n      id\n    }\n    description\n    editorVersion\n    features {\n      featuredOn\n      name\n      ribbon {\n        image\n        image2x\n      }\n      url\n    }\n    fields {\n      id\n      label\n      slug\n      url\n    }\n    creator {\n      isFollowing\n      hasAllowEmbeds\n      availabilityInfo {\n        isAvailableFreelance\n      }\n      isMessageButtonVisible\n    }\n    hasMatureContent\n    hasPassword\n    isBoosted\n    activeBoost {\n      id\n      user {\n        id\n        username\n        displayName\n      }\n    }\n    isCommentingAllowed\n    isFounder\n    isMatureReviewSubmitted\n    isMonaReported\n    isPrivate\n    isPublished\n    isPinnedToSubscriptionOverview\n    linkedAssetsCount\n    linkedAssets {\n      ...sourceLinkFields\n    }\n    sourceFiles {\n      ...sourceFileWithRenditionsFields\n    }\n    license {\n      description\n      label\n      license\n      id\n    }\n    matureAccess\n    name\n    networks {\n      id\n      icon\n      key\n      name\n      visible\n    }\n    owners {\n      ...OwnerFields\n      firstName\n      images {\n        size_50 {\n          url\n        }\n      }\n      hasAllowEmbeds\n    }\n    pendingCoowners {\n      displayName\n      id\n    }\n    publishedOn\n    publishStatus\n    premium\n    privacyLevel\n    projectCTA {\n      ctaType\n      link {\n        url\n        title\n        description\n      }\n      isDefaultCTA\n    }\n    scheduledOn\n    schools {\n      ...projectTagFields\n    }\n    slug\n    stats {\n      appreciations {\n        all\n      }\n      comments {\n        all\n      }\n      views {\n        all\n      }\n    }\n    styles {\n      ...projectStylesFields\n    }\n    tags {\n      ...projectTagFields\n    }\n    teams {\n      ...projectTeamFields\n    }\n    tools {\n      ...projectToolFields\n    }\n    url\n  }\n  \n  fragment OwnerFields on User {\n    displayName\n    hasPremiumAccess\n    id\n    isFollowing\n    isProfileOwner\n    location\n    locationUrl\n    url\n    username\n    isMessageButtonVisible\n    availabilityInfo {\n      availabilityTimeline\n      isAvailableFullTime\n      isAvailableFreelance\n      hiringTimeline {\n        key\n        label\n      }\n    }\n    creatorPro {\n      isActive\n      initialSubscriptionDate\n    }\n  }\n\n\n        \n  fragment audioModuleFields on AudioModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    id\n    isDoneProcessing\n    projectId\n    status\n  }\n\n        \n  fragment embedModuleFields on EmbedModule {\n    alignment\n    caption\n    captionAlignment\n    captionPlain\n    fluidEmbed\n    embedModuleFullBleed: fullBleed\n    height\n    id\n    originalEmbed\n    originalHeight\n    originalWidth\n    width\n    widthUnit\n  }\n\n        \n  fragment imageModuleFields on ImageModule {\n    alignment\n    altText\n    altTextForEditor\n    caiData\n    hasCaiData\n    caption\n    captionAlignment\n    captionPlain\n    flexHeight\n    flexWidth\n    fullBleed\n    height\n    id\n    isCaiVersion1\n    projectId\n    src\n    tags\n    width\n    imageSizes {\n      ...imageSizesFields\n    }\n  }\n\n        \n  fragment textModuleFields on TextModule {\n    id\n    fullBleed\n    alignment\n    captionAlignment\n    text\n    textPlain\n    projectId\n  }\n\n        \n  fragment videoModuleFields on VideoModule {\n    alignment\n    captionAlignment\n    caption\n    embed\n    fullBleed\n    height\n    id\n    isDoneProcessing\n    src\n    videoData {\n      renditions {\n        url\n      }\n      status\n    }\n    width\n  }\n\n        \n  fragment imageSizesFields on ProjectModuleImageSizes {\n    size_disp {\n      height\n      url\n      width\n    }\n    size_fs {\n      height\n      url\n      width\n    }\n    size_max_1200 {\n      height\n      url\n      width\n    }\n    size_original {\n      height\n      url\n      width\n    }\n    size_1400 {\n      height\n      url\n      width\n    }\n    size_1400_opt_1 {\n      height\n      url\n      width\n    }\n    size_2800_opt_1 {\n      height\n      url\n      width\n    }\n    size_max_3840 {\n      height\n      url\n      width\n    }\n    allAvailable {\n      height\n      url\n      width\n      type\n    }\n  }\n\n        \n  fragment mediaCollectionModuleFields on MediaCollectionModule {\n    alignment\n    captionAlignment\n    captionPlain\n    collectionType\n    components {\n      filename\n      flexHeight\n      flexWidth\n      height\n      id\n      imageSizes {\n        size_disp {\n          height\n          url\n          width\n        }\n        size_fs {\n          height\n          url\n          width\n        }\n        size_max_1200 {\n          height\n          url\n          width\n        }\n        size_1400_opt_1 {\n          height\n          url\n          width\n        }\n        size_2800_opt_1 {\n          height\n          url\n          width\n        }\n      }\n      position\n      width\n    }\n    id\n    fullBleed\n    sortType\n  }\n\n        \n  fragment projectCoverFields on ProjectCoverImageSizes {\n    size_original {\n      url\n    }\n    size_115 {\n      url\n    }\n    size_202 {\n      url\n    }\n    size_230 {\n      url\n    }\n    size_404 {\n      url\n    }\n    size_808 {\n      url\n    }\n    size_max_808 {\n      url\n    }\n  }\n\n        \n  fragment projectStylesFields on ProjectStyle {\n    background {\n      color\n    }\n    divider {\n      borderStyle\n      borderWidth\n      display\n      fontSize\n      height\n      lineHeight\n      margin\n      position\n      top\n    }\n    spacing {\n      moduleBottomMargin\n      projectTopMargin\n    }\n  }\n\n        \n  fragment projectTeamFields on TeamItem {\n    displayName\n    id\n    imageSizes {\n      size_115 {\n        height\n        url\n        width\n      }\n      size_138 {\n        height\n        url\n        width\n      }\n      size_276 {\n        height\n        url\n        width\n      }\n    }\n    locationDisplay\n    slug\n    url\n  }\n\n        \n  fragment projectToolFields on Tool {\n    approved\n    backgroundColor\n    backgroundImage {\n      size_original {\n        height\n        url\n        width\n      }\n      size_max_808 {\n        height\n        url\n        width\n      }\n      size_404 {\n        height\n        url\n        width\n      }\n    }\n    category\n    categoryLabel\n    categoryId\n    id\n    synonym {\n      authenticated\n      downloadUrl\n      galleryUrl\n      iconUrl\n      iconUrl2x\n      name\n      synonymId\n      tagId\n      title\n      type\n      url\n    }\n    title\n    url\n  }\n\n        \n  fragment projectTagFields on Tag {\n    category\n    id\n    title\n  }\n\n        \n  fragment sourceFileWithRenditionsFields on SourceFile {\n    __typename\n    sourceFileId\n    projectId\n    userId\n    title\n    assetId\n    renditionUrl\n    mimeType\n    size\n    category\n    licenseType\n    unitAmount\n    currency\n    tier\n    hidden\n    extension\n    hasUserPurchased\n    description\n    renditions {\n      etag\n      fileName\n      id\n      md5\n      mimeType\n      size\n      srcUrl\n    }\n    cover {\n      coverUrl\n      coverX\n      coverY\n      coverScale\n    }\n  }\n\n        \n  fragment sourceLinkFields on LinkedAsset {\n    __typename\n    name\n    premium\n    url\n    category\n    licenseType\n  }\n\n      ",
+        #                                                                             "variables": {
+        #                                                                                 "projectId": 243693391,
+        #                                                                                 "params": {
+        #                                                                                     "agencies": "",
+        #                                                                                     "assets": [],
+        #                                                                                     "backgroundColor": "FFFFFF",
+        #                                                                                     "brands": "",
+        #                                                                                     "captionStyles": {
+        #                                                                                         "color": "a4a4a4",
+        #                                                                                         "fontFamily": "helvetica,arial,sans-serif",
+        #                                                                                         "fontSize": 14,
+        #                                                                                         "fontStyle": "italic",
+        #                                                                                         "fontWeight": "normal",
+        #                                                                                         "lineHeight": 1.4,
+        #                                                                                         "textAlign": "left",
+        #                                                                                         "textDecoration": "none",
+        #                                                                                         "textTransform": "none",
+        #                                                                                     },
+        #                                                                                     "canvasTopMargin": 80,
+        #                                                                                     "commentsStatus": "ALLOWED",
+        #                                                                                     "coowners": "2044610771",
+        #                                                                                     "creativeFields": "",
+        #                                                                                     "credits": "",
+        #                                                                                     "description": "",
+        #                                                                                     "license": "NO_USE",
+        #                                                                                     "linkStyles": {
+        #                                                                                         "color": "1769FF",
+        #                                                                                         "fontFamily": "helvetica,arial,sans-serif",
+        #                                                                                         "fontSize": 20,
+        #                                                                                         "fontStyle": "normal",
+        #                                                                                         "fontWeight": "normal",
+        #                                                                                         "lineHeight": 1.4,
+        #                                                                                         "textAlign": "left",
+        #                                                                                         "textDecoration": "none",
+        #                                                                                         "textTransform": "none",
+        #                                                                                     },
+        #                                                                                     "matureContentStatus": "OFF",
+        #                                                                                     "modules": [
+        #                                                                                         {
+        #                                                                                             "imageModule": {
+        #                                                                                                 "id": 1406309813,
+        #                                                                                                 "alignment": "center",
+        #                                                                                                 "captionAlignment": "left",
+        #                                                                                                 "fullBleed": "NO",
+        #                                                                                                 "caption": "",
+        #                                                                                                 "tags": [],
+        #                                                                                                 "altText": "Image may contain: screenshot",
+        #                                                                                             }
+        #                                                                                         },
+        #                                                                                         {
+        #                                                                                             "imageModule": {
+        #                                                                                                 "id": 1406309815,
+        #                                                                                                 "alignment": "center",
+        #                                                                                                 "captionAlignment": "left",
+        #                                                                                                 "fullBleed": "NO",
+        #                                                                                                 "caption": "",
+        #                                                                                                 "tags": [],
+        #                                                                                                 "altText": "Image may contain: screenshot",
+        #                                                                                             }
+        #                                                                                         },
+        #                                                                                         {
+        #                                                                                             "imageModule": {
+        #                                                                                                 "id": 1406309817,
+        #                                                                                                 "alignment": "center",
+        #                                                                                                 "captionAlignment": "left",
+        #                                                                                                 "fullBleed": "NO",
+        #                                                                                                 "caption": "",
+        #                                                                                                 "tags": [],
+        #                                                                                                 "altText": "Image may contain: screenshot",
+        #                                                                                             }
+        #                                                                                         },
+        #                                                                                         {
+        #                                                                                             "imageModule": {
+        #                                                                                                 "id": -1,
+        #                                                                                                 "alignment": "center",
+        #                                                                                                 "captionAlignment": "left",
+        #                                                                                                 "fullBleed": "NO",
+        #                                                                                                 "srcUrl": "https://s3.amazonaws.com/be-network-tmp-prod-ue1-a/582302bc-ec29-4b76-9842-02193e6558ef.png",
+        #                                                                                                 "caption": "",
+        #                                                                                             }
+        #                                                                                         },
+        #                                                                                     ],
+        #                                                                                     "moduleBottomMargin": 60,
+        #                                                                                     "paragraphStyles": {
+        #                                                                                         "color": "696969",
+        #                                                                                         "fontFamily": "helvetica,arial,sans-serif",
+        #                                                                                         "fontSize": 20,
+        #                                                                                         "fontStyle": "normal",
+        #                                                                                         "fontWeight": "normal",
+        #                                                                                         "lineHeight": 1.4,
+        #                                                                                         "textAlign": "left",
+        #                                                                                         "textDecoration": "none",
+        #                                                                                         "textTransform": "none",
+        #                                                                                     },
+        #                                                                                     "publishStatus": "DRAFT",
+        #                                                                                     "schools": "",
+        #                                                                                     "subTitleStyles": {
+        #                                                                                         "color": "a4a4a4",
+        #                                                                                         "fontFamily": "helvetica,arial,sans-serif",
+        #                                                                                         "fontSize": 20,
+        #                                                                                         "fontStyle": "normal",
+        #                                                                                         "fontWeight": "normal",
+        #                                                                                         "lineHeight": 1.4,
+        #                                                                                         "textAlign": "left",
+        #                                                                                         "textDecoration": "none",
+        #                                                                                         "textTransform": "none",
+        #                                                                                     },
+        #                                                                                     "tags": "",
+        #                                                                                     "teams": "",
+        #                                                                                     "titleStyles": {
+        #                                                                                         "color": "191919",
+        #                                                                                         "fontFamily": "helvetica,arial,sans-serif",
+        #                                                                                         "fontSize": 36,
+        #                                                                                         "fontStyle": "normal",
+        #                                                                                         "fontWeight": "bold",
+        #                                                                                         "lineHeight": 1.1,
+        #                                                                                         "textAlign": "left",
+        #                                                                                         "textDecoration": "none",
+        #                                                                                         "textTransform": "none",
+        #                                                                                     },
+        #                                                                                     "tools": "",
+        #                                                                                     "visibleNetworkIds": "0",
+        #                                                                                 },
+        #                                                                             },
+        #                                                                         }
+
+        #                                                                         async with (
+        #                                                                             session.post(
+        #                                                                                 url,
+        #                                                                                 headers={
+        #                                                                                     **self.headers,
+        #                                                                                     "authorization": f"Bearer {self.authorization_bearer}",
+        #                                                                                     "content-type": "application/json",
+        #                                                                                 },
+        #                                                                                 json={
+        #                                                                                     **payload,
+        #                                                                                     "variables": {
+        #                                                                                         **payload[
+        #                                                                                             "variables"
+        #                                                                                         ],
+        #                                                                                         "params": {
+        #                                                                                             **payload[
+        #                                                                                                 "variables"
+        #                                                                                             ][
+        #                                                                                                 "params"
+        #                                                                                             ],
+        #                                                                                             "modules": all_modules_mapped,
+        #                                                                                         },
+        #                                                                                     },
+        #                                                                                 },
+        #                                                                             ) as response
+        #                                                                         ):
+        #                                                                             if (
+        #                                                                                 response.status
+        #                                                                                 == 200
+        #                                                                             ):
+        #                                                                                 json_data = await response.json()
+        #                                                                                 if (
+        #                                                                                     json_data
+        #                                                                                     and "data"
+        #                                                                                     in json_data
+        #                                                                                     and "updateProject"
+        #                                                                                     in json_data[
+        #                                                                                         "data"
+        #                                                                                     ]
+        #                                                                                 ):
+        #                                                                                     print(
+        #                                                                                         f"{project_id} updated successfully"
+        #                                                                                     )
+        #                                                                                     return json_data[
+        #                                                                                         "data"
+        #                                                                                     ][
+        #                                                                                         "updateProject"
+        #                                                                                     ][
+        #                                                                                         "allModules"
+        #                                                                                     ]
+        #                                                                             raise Exception(
+        #                                                                                 "Failed to update project"
+        #                                                                             )
 
     async def createProject(self, description=None):
         url = f"https://www.{ecnaheb_url_api}/v2/project/editor"
@@ -744,22 +1064,44 @@ class Behance:
             "assets": "",
             "format": "display",
         }
-        response = requests.post(
-            url,
-            headers={
-                **self.headers,
-                "authorization": f"Bearer {self.authorization_bearer}",
-                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-            },
-        )
-        if response.status_code == 201:
-            json_data = response.json()
-            if "project" in json_data:
-                print("New project created")
-                return json_data["project"]
-        else:
-            raise Exception(f"Unexpected status code: {response.status_code}")
-        # async with aiohttp.ClientSession() as session:
+        # response = requests.post(
+        #     url,
+        #     headers={
+        #         **self.headers,
+        #         "authorization": f"Bearer {self.authorization_bearer}",
+        #         "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+        #     },
+        # )
+        # print(url)
+        # if response.status_code == 201:
+        #     json_data = response.json()
+        #     if "project" in json_data:
+        #         print("New project created")
+        #         return json_data["project"]
+        # else:
+        #     raise Exception(f"Unexpected status code: {response.status_code}")
+        # wh
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers={
+                    **self.headers,
+                    "authorization": f"Bearer {self.authorization_bearer}",
+                    "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                },
+                data=payload,
+            )
+            if response.status_code == 201:
+                json_data = response.json()
+                if "project" in json_data:
+                    print("New project created")
+                    return json_data["project"]
+            else:
+                raise Exception(f"Unexpected status code: {response.status_code}")
+        # req = requests.get("https://www.google.com")
+        # print(req)
+        # timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None)
+        # async with aiohttp.ClientSession(timeout=timeout) as session:
         #     async with session.post(
         #         url,
         #         headers={
@@ -768,6 +1110,7 @@ class Behance:
         #             "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
         #         },
         #         data=payload,
+        #         ssl=False,
         #     ) as response:
         #         if response.status == 201:
         #             json_data = await response.json()
