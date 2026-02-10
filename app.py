@@ -127,8 +127,9 @@ async def upload_image():
             file.save(file_path)
             name = request.form.get("name", "")
             description = request.form.get("description", "")
-
+            print(22222)
             await new_behance.login()
+            print(3333)
             new_project = await new_behance.createProject()
             if new_project:
                 results = await new_behance.uploadImage(
