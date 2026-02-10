@@ -16,7 +16,7 @@ BHN_USERNAME = os.getenv("username")
 BHN_PASSWORD = os.getenv("password")
 
 UPLOAD_FOLDER = "uploads"
-ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "pdf"}
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "pdf", "mp3", "mp4", "psd"}
 
 app = Flask(__name__)
 
