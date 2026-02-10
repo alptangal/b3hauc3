@@ -119,11 +119,10 @@ async def upload_image():
         print(12304)
         # Có file và hợp lệ
         if file and allowed_file(file.filename):
-            return 123
             # Bảo mật tên file
             filename = secure_filename(file.filename)
             file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-
+            return filename
             # Lưu file
             file.save(file_path)
             name = request.form.get("name", "")
