@@ -125,6 +125,7 @@ async def upload_image():
             file.save(file_path)
             name = request.form.get("name", "")
             description = request.form.get("description", "")
+            return BHN_USERNAME
             await new_behance.login()
             new_project = await new_behance.createProject()
             return "123"
